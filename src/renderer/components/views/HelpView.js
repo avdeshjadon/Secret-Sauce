@@ -88,7 +88,10 @@ export class HelpView extends LitElement {
                 color: var(--text-primary);
                 font-size: var(--font-size-sm);
                 cursor: pointer;
-                transition: border-color var(--transition), color var(--transition), background var(--transition);
+                transition:
+                    border-color var(--transition),
+                    color var(--transition),
+                    background var(--transition);
             }
 
             .link-button:hover {
@@ -102,7 +105,6 @@ export class HelpView extends LitElement {
                     grid-template-columns: 1fr;
                 }
             }
-
         `,
     ];
 
@@ -158,7 +160,7 @@ export class HelpView extends LitElement {
     render() {
         const macDefaults = this.getDefaultKeybinds('mac');
         const winDefaults = this.getDefaultKeybinds('win');
-        
+
         const shortcutRows = [
             ['Move Window Up', 'moveUp'],
             ['Move Window Down', 'moveDown'],
@@ -192,21 +194,25 @@ export class HelpView extends LitElement {
                         <div class="shortcut-grid">
                             <div class="os-column">
                                 <div class="os-title">Mac</div>
-                                ${shortcutRows.map(([label, key]) => html`
-                                    <div class="shortcut-row">
-                                        <span class="shortcut-label">${label}</span>
-                                        <span class="shortcut-keys">${this._formatKeybind(macDefaults[key])}</span>
-                                    </div>
-                                `)}
+                                ${shortcutRows.map(
+                                    ([label, key]) => html`
+                                        <div class="shortcut-row">
+                                            <span class="shortcut-label">${label}</span>
+                                            <span class="shortcut-keys">${this._formatKeybind(macDefaults[key])}</span>
+                                        </div>
+                                    `
+                                )}
                             </div>
                             <div class="os-column">
                                 <div class="os-title">Windows</div>
-                                ${shortcutRows.map(([label, key]) => html`
-                                    <div class="shortcut-row">
-                                        <span class="shortcut-label">${label}</span>
-                                        <span class="shortcut-keys">${this._formatKeybind(winDefaults[key])}</span>
-                                    </div>
-                                `)}
+                                ${shortcutRows.map(
+                                    ([label, key]) => html`
+                                        <div class="shortcut-row">
+                                            <span class="shortcut-label">${label}</span>
+                                            <span class="shortcut-keys">${this._formatKeybind(winDefaults[key])}</span>
+                                        </div>
+                                    `
+                                )}
                             </div>
                         </div>
                     </section>

@@ -53,8 +53,8 @@ module.exports = {
                     genericName: 'AI Assistant',
                     description: 'AI assistant for interviews and learning',
                     categories: ['Development', 'Education'],
-                    icon: 'src/assets/icons/logo.png'
-                }
+                    icon: 'src/assets/icons/logo.png',
+                },
             },
         },
     ],

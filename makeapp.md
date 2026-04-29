@@ -28,12 +28,12 @@ Since the app is **unsigned**, macOS will block it by default. Tell them to:
 
 1. Open the `.dmg` and drag "Secret Sauce" to Applications
 2. **Don't double-click to open!** Instead:
-   - Right-click → Open → Click "Open" in the warning dialog
+    - Right-click → Open → Click "Open" in the warning dialog
 3. If it says "app is damaged", open Terminal and run:
-   ```bash
-   xattr -cr /Applications/Secret\ Sauce.app
-   ```
-   Then right-click → Open again.
+    ```bash
+    xattr -cr /Applications/Secret\ Sauce.app
+    ```
+    Then right-click → Open again.
 
 ---
 
@@ -70,14 +70,14 @@ Output: `out/make/Secret Sauce.AppImage`
 
 ## Quick Reference
 
-| Command | What it does |
-|---------|-------------|
-| `npm start` | Run in dev mode |
-| `npm run make` | Build all platforms |
+| Command                                          | What it does        |
+| ------------------------------------------------ | ------------------- |
+| `npm start`                                      | Run in dev mode     |
+| `npm run make`                                   | Build all platforms |
 | `npm run make -- --platform=darwin --arch=arm64` | macOS Apple Silicon |
-| `npm run make -- --platform=darwin --arch=x64` | macOS Intel |
-| `npm run make -- --platform=win32 --arch=x64` | Windows |
-| `npm run make -- --platform=linux --arch=x64` | Linux |
+| `npm run make -- --platform=darwin --arch=x64`   | macOS Intel         |
+| `npm run make -- --platform=win32 --arch=x64`    | Windows             |
+| `npm run make -- --platform=linux --arch=x64`    | Linux               |
 
 ---
 
@@ -86,8 +86,8 @@ Output: `out/make/Secret Sauce.AppImage`
 In `forge.config.js`, these fuses are set to `false` so the app works without code signing:
 
 ```js
-EnableEmbeddedAsarIntegrityValidation: false  // requires signing
-OnlyLoadAppFromAsar: false                    // requires signing
+EnableEmbeddedAsarIntegrityValidation: false; // requires signing
+OnlyLoadAppFromAsar: false; // requires signing
 ```
 
 If you ever get an Apple Developer certificate, you can enable `osxSign` and `osxNotarize` in the config and set these back to `true`.

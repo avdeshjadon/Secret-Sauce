@@ -967,24 +967,28 @@ export class MainView extends LitElement {
             <div class="form-wrapper">
                 <div class="title-row">
                     <div class="page-title">Secret Sauce</div>
-                    ${this._mode === 'local' ? html`
-                        <button
-                            class="help-btn"
-                            @click=${() => {
-                                this._showLocalHelp = !this._showLocalHelp;
-                            }}
-                        >
-                            ${this._showLocalHelp ? closeIcon : helpIcon}
-                        </button>
-                    ` : ''}
+                    ${this._mode === 'local'
+                        ? html`
+                              <button
+                                  class="help-btn"
+                                  @click=${() => {
+                                      this._showLocalHelp = !this._showLocalHelp;
+                                  }}
+                              >
+                                  ${this._showLocalHelp ? closeIcon : helpIcon}
+                              </button>
+                          `
+                        : ''}
                 </div>
                 <div class="page-subtitle">${this._mode === 'byok' ? 'Bring your own API keys' : 'Run models locally on your machine'}</div>
 
                 <!-- Cloud mode render branch intentionally disabled. -->
                 ${this._mode === 'byok' ? this._renderByokMode() : ''}
                 ${this._mode === 'local' ? (this._showLocalHelp ? this._renderLocalHelp() : this._renderLocalMode()) : ''}
-                
-                <div style="text-align: center; margin-top: var(--space-xl); font-size: 11px; color: var(--text-muted); font-weight: var(--font-weight-medium); letter-spacing: 0.5px; opacity: 0.8;">
+
+                <div
+                    style="text-align: center; margin-top: var(--space-xl); font-size: 11px; color: var(--text-muted); font-weight: var(--font-weight-medium); letter-spacing: 0.5px; opacity: 0.8;"
+                >
                     made by Lavender
                 </div>
             </div>

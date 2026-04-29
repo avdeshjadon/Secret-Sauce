@@ -627,9 +627,9 @@ export class CustomizeView extends LitElement {
                             <option value="both">Both Speaker and Microphone</option>
                         </select>
                     </div>
-                    ${this.audioMode !== 'speaker_only' ? html`
-                        <div class="warning-callout">May cause unexpected behavior. Only change this if you know what you're doing.</div>
-                    ` : ''}
+                    ${this.audioMode !== 'speaker_only'
+                        ? html` <div class="warning-callout">May cause unexpected behavior. Only change this if you know what you're doing.</div> `
+                        : ''}
                     <div class="form-group">
                         <label class="form-label">Image Quality</label>
                         <select class="control" .value=${this.selectedImageQuality} @change=${this.handleImageQualitySelect}>
@@ -712,37 +712,41 @@ export class CustomizeView extends LitElement {
                 <div class="keybind-grid">
                     <div class="os-column">
                         <div class="os-title">Mac</div>
-                        ${this.getKeybindActions().map(action => html`
-                            <div class="keybind-row">
-                                <span class="keybind-name">${action.name}</span>
-                                <input
-                                    type="text"
-                                    class="control keybind-input"
-                                    .value=${this.keybinds['mac_' + action.key] || ''}
-                                    data-action="mac_${action.key}"
-                                    @keydown=${this.handleKeybindInput}
-                                    @focus=${this.handleKeybindFocus}
-                                    readonly
-                                />
-                            </div>
-                        `)}
+                        ${this.getKeybindActions().map(
+                            action => html`
+                                <div class="keybind-row">
+                                    <span class="keybind-name">${action.name}</span>
+                                    <input
+                                        type="text"
+                                        class="control keybind-input"
+                                        .value=${this.keybinds['mac_' + action.key] || ''}
+                                        data-action="mac_${action.key}"
+                                        @keydown=${this.handleKeybindInput}
+                                        @focus=${this.handleKeybindFocus}
+                                        readonly
+                                    />
+                                </div>
+                            `
+                        )}
                     </div>
                     <div class="os-column">
                         <div class="os-title">Windows</div>
-                        ${this.getKeybindActions().map(action => html`
-                            <div class="keybind-row">
-                                <span class="keybind-name">${action.name}</span>
-                                <input
-                                    type="text"
-                                    class="control keybind-input"
-                                    .value=${this.keybinds['win_' + action.key] || ''}
-                                    data-action="win_${action.key}"
-                                    @keydown=${this.handleKeybindInput}
-                                    @focus=${this.handleKeybindFocus}
-                                    readonly
-                                />
-                            </div>
-                        `)}
+                        ${this.getKeybindActions().map(
+                            action => html`
+                                <div class="keybind-row">
+                                    <span class="keybind-name">${action.name}</span>
+                                    <input
+                                        type="text"
+                                        class="control keybind-input"
+                                        .value=${this.keybinds['win_' + action.key] || ''}
+                                        data-action="win_${action.key}"
+                                        @keydown=${this.handleKeybindInput}
+                                        @focus=${this.handleKeybindFocus}
+                                        readonly
+                                    />
+                                </div>
+                            `
+                        )}
                     </div>
                 </div>
                 <div style="margin-top: var(--space-sm);">
@@ -761,9 +765,9 @@ export class CustomizeView extends LitElement {
                         ${this.isRestoring ? 'Restoring...' : 'Restore all settings'}
                     </button>
                 </div>
-                ${this.clearStatusMessage ? html`
-                    <div class="status ${this.clearStatusType === 'success' ? 'success' : 'error'}">${this.clearStatusMessage}</div>
-                ` : ''}
+                ${this.clearStatusMessage
+                    ? html` <div class="status ${this.clearStatusType === 'success' ? 'success' : 'error'}">${this.clearStatusMessage}</div> `
+                    : ''}
             </section>
         `;
     }
@@ -773,10 +777,7 @@ export class CustomizeView extends LitElement {
             <div class="unified-page">
                 <div class="unified-wrap">
                     <div class="page-title">Settings</div>
-                    ${this.renderAudioSection()}
-                    ${this.renderLanguageSection()}
-                    ${this.renderAppearanceSection()}
-                    ${this.renderKeyboardSection()}
+                    ${this.renderAudioSection()} ${this.renderLanguageSection()} ${this.renderAppearanceSection()} ${this.renderKeyboardSection()}
                     ${this.renderResetSection()}
                 </div>
             </div>

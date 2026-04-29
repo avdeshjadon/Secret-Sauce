@@ -148,6 +148,53 @@ function getCurrentSessionData() {
     };
 }
 
+async function generateSessionSummary() {
+    if (!conversationHistory || conversationHistory.length === 0) {
+        logger.info('No conversation history to summarize');
+        return null;
+    }
+
+    const apiKey = getApiKey();
+    if (!apiKey) return null;
+
+    logger.info('Generating session summary...');
+    sendToRenderer('update-status', 'Generating summary...');
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+        const historyText = conversationHistory.map(turn => `[Interviewer]: ${turn.transcription}\n[Candidate]: ${turn.ai_response}`).join('\n\n');
+
+        const prompt = `You are a professional meeting assistant. Based on the following conversation history from a ${currentProfile || 'session'}, provide a concise, high-level summary.
+        
+        Include:
+        1. **Key Discussion Points**
+        2. **Action Items / Next Steps**
+        3. **Overall Sentiment / Feedback**
+        
+        Keep it professional and formatted in **markdown**.
+        
+        Conversation History:
+        ${historyText}`;
+
+        const result = await model.generateContent(prompt);
+        const summary = result.response.text();
+
+        if (summary) {
+            logger.info('Summary generated successfully');
+            sendToRenderer('session-summary', {
+                sessionId: currentSessionId,
+                summary: summary,
+            });
+            return summary;
+        }
+    } catch (error) {
+        logger.error('Error generating summary:', error);
+    }
+    return null;
+}
+
 async function getEnabledTools() {
     const tools = [];
 
@@ -985,42 +1032,41 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             return { success: false, error: 'Invalid text message' };
         }
 
-        if (currentProviderMode === 'cloud') {
-            try {
+        try {
+            if (currentProviderMode === 'cloud') {
                 logger.info('Sending text to cloud:', text);
                 sendCloudText(text.trim());
                 return { success: true };
-            } catch (error) {
-                logger.error('Error sending cloud text:', error);
-                return { success: false, error: error.message };
             }
-        }
 
-        if (currentProviderMode === 'local') {
-            try {
+            if (currentProviderMode === 'local') {
                 logger.info('Sending text to local Ollama:', text);
                 return await getLocalAi().sendLocalText(text.trim());
-            } catch (error) {
-                logger.error('Error sending local text:', error);
-                return { success: false, error: error.message };
             }
-        }
 
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
-
-        try {
-            logger.info('Sending text message:', text);
-
+            // Default BYOK mode
             if (hasGroqKey()) {
-                sendToGroq(text.trim());
+                await sendToGroq(text.trim());
             } else {
-                sendToGemma(text.trim());
+                await sendToGemma(text.trim());
             }
 
-            await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });
+            if (geminiSessionRef.current) {
+                await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });
+            }
             return { success: true };
         } catch (error) {
-            logger.error('Error sending text:', error);
+            logger.error('Error sending text message:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('generate-summary', async () => {
+        try {
+            const summary = await generateSessionSummary();
+            return { success: true, summary };
+        } catch (error) {
+            logger.error('Error in generate-summary handler:', error);
             return { success: false, error: error.message };
         }
     });

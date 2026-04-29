@@ -1,6 +1,7 @@
 <div align="center">
 
 #Secret Sauce
+
 ### Your Real-Time AI Strategic Companion
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -16,40 +17,47 @@
 ## Key Features
 
 ### Multimodal Intelligence
-*   **Live Screen & Audio Analysis**: Powered by **Google Gemini 2.0 Flash Live**, Secret Sauce "sees" your screen and "hears" the conversation to provide instant context.
-*   **Speaker Diarization**: Intelligently distinguishes between the **Interviewer** and the **Candidate** for highly relevant responses.
-*   **Real-Time Web Search**: Integrated Google Search tool ensures your answers are always backed by the latest industry data and news.
+
+- **Live Screen & Audio Analysis**: Powered by **Google Gemini 2.0 Flash Live**, Secret Sauce "sees" your screen and "hears" the conversation to provide instant context.
+- **Speaker Diarization**: Intelligently distinguishes between the **Interviewer** and the **Candidate** for highly relevant responses.
+- **Real-Time Web Search**: Integrated Google Search tool ensures your answers are always backed by the latest industry data and news.
 
 ### Specialized Strategic Profiles
+
 Tailor your experience with optimized prompts for every scenario:
-*   **Interview**: Discreet teleprompter mode to help you "crack" the job.
-*   **Sales Call**: Persuasive, value-driven talk tracks to close deals.
-*   **Business Meeting**: Clear, action-oriented responses for professional discussions.
-*   **Presentation**: Confident coaching with data-backed talking points.
-*   **Negotiation**: Strategic win-win positioning and objection handling.
-*   **Exam**: Efficient, accurate answers for high-pressure testing.
+
+- **Interview**: Discreet teleprompter mode to help you "crack" the job.
+- **Sales Call**: Persuasive, value-driven talk tracks to close deals.
+- **Business Meeting**: Clear, action-oriented responses for professional discussions.
+- **Presentation**: Confident coaching with data-backed talking points.
+- **Negotiation**: Strategic win-win positioning and objection handling.
+- **Exam**: Efficient, accurate answers for high-pressure testing.
 
 ### Stealth & UX
-*   **Transparent Overlay**: An always-on-top window that stays out of your way.
-*   **Click-Through Mode**: Instantly make the window transparent to mouse events (`Cmd/Ctrl + M`).
-*   **Custom Keybinds**: Fully remappable shortcuts for window movement and actions.
-*   **Markdown Support**: Richly formatted AI responses with syntax highlighting for code.
+
+- **Transparent Overlay**: An always-on-top window that stays out of your way.
+- **Click-Through Mode**: Instantly make the window transparent to mouse events (`Cmd/Ctrl + M`).
+- **Custom Keybinds**: Fully remappable shortcuts for window movement and actions.
+- **Markdown Support**: Richly formatted AI responses with syntax highlighting for code.
 
 ### Multi-Provider Support
-*   **BYOK (Bring Your Own Key)**: Use your own Google Gemini, Groq, or OpenAI keys.
-*   **Local AI**: Support for local LLMs via **Ollama** and transcription via **Whisper**.
-*   **Hybrid Orchestration**: Seamlessly switch between providers (Groq > Gemini > Gemma) for optimal speed and reliability.
+
+- **BYOK (Bring Your Own Key)**: Use your own Google Gemini, Groq, or OpenAI keys.
+- **Local AI**: Support for local LLMs via **Ollama** and transcription via **Whisper**.
+- **Hybrid Orchestration**: Seamlessly switch between providers (Groq > Gemini > Gemma) for optimal speed and reliability.
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
+
 - macOS (Latest recommended), Windows, or Linux
 - [Google Gemini API Key](https://aistudio.google.com/apikey)
 - Node.js & npm
 
 ### Installation
+
 1.  **Clone the repository**:
     ```bash
     git clone https://github.com/avdeshjadon/secret-sauce.git
@@ -68,21 +76,21 @@ Tailor your experience with optimized prompts for every scenario:
 
 ## Keyboard Shortcuts
 
-| Action | Shortcut |
-| :--- | :--- |
-| **Move Window** | `Ctrl/Cmd + Arrow Keys` |
-| **Toggle Click-through** | `Ctrl/Cmd + M` |
-| **Back / Close** | `Ctrl/Cmd + \` |
-| **Send Message** | `Enter` |
-| **Manual Screenshot** | `Ctrl/Cmd + Enter` |
+| Action                   | Shortcut                |
+| :----------------------- | :---------------------- |
+| **Move Window**          | `Ctrl/Cmd + Arrow Keys` |
+| **Toggle Click-through** | `Ctrl/Cmd + M`          |
+| **Back / Close**         | `Ctrl/Cmd + \`          |
+| **Send Message**         | `Enter`                 |
+| **Manual Screenshot**    | `Ctrl/Cmd + Enter`      |
 
 ---
 
 ## Privacy by Design
 
-*   **Local Processing**: Audio resampling and local LLM options keep your data on your machine.
-*   **Context Isolation**: Secure IPC handling ensures your credentials stay protected.
-*   **User Control**: Clear transparency on what data is captured and how it's used.
+- **Local Processing**: Audio resampling and local LLM options keep your data on your machine.
+- **Context Isolation**: Secure IPC handling ensures your credentials stay protected.
+- **User Control**: Clear transparency on what data is captured and how it's used.
 
 ---
 

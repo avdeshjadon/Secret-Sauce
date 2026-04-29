@@ -193,6 +193,34 @@ async function initializeCloud(profile = 'interview') {
 ipcRenderer.on('update-status', (event, status) => {
     console.log('Status update:', status);
     secretSauce.setStatus(status);
+
+    // Update confidence meter and pulse effect
+    const meter = document.getElementById('confidenceMeter');
+    const bar = meter.querySelector('.confidence-bar');
+    const appEl = document.getElementById('secretSauce');
+
+    if (status.includes('Generating') || status.includes('Thinking')) {
+        bar.style.width = '70%';
+        bar.style.background = 'var(--accent)';
+        appEl.classList.add('thinking-pulse');
+    } else if (status.includes('Listening') || status.includes('Live')) {
+        bar.style.width = '0%';
+        appEl.classList.remove('thinking-pulse');
+    } else if (status.includes('error') || status.includes('Error')) {
+        bar.style.width = '100%';
+        bar.style.background = 'var(--danger)';
+        appEl.classList.remove('thinking-pulse');
+    }
+});
+
+// Listen for session summary
+ipcRenderer.on('session-summary', (event, data) => {
+    const modal = document.getElementById('summaryModal');
+    const content = document.getElementById('summaryContent');
+
+    // Use marked to render summary markdown
+    content.innerHTML = typeof marked !== 'undefined' ? marked.parse(data.summary) : data.summary;
+    modal.classList.add('visible');
 });
 
 async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'medium') {
@@ -741,6 +769,11 @@ function stopCapture() {
             console.error('Error stopping macOS audio:', err);
         });
     }
+
+    // Trigger summary generation
+    ipcRenderer.invoke('generate-summary').catch(err => {
+        console.error('Error generating summary:', err);
+    });
 
     // Clean up hidden elements
     if (hiddenVideo) {

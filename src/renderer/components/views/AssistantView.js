@@ -54,12 +54,22 @@ export class AssistantView extends LitElement {
             font-weight: var(--font-weight-semibold);
         }
 
-        .response-container h1 { font-size: 1.5em; }
-        .response-container h2 { font-size: 1.3em; }
-        .response-container h3 { font-size: 1.15em; }
-        .response-container h4 { font-size: 1.05em; }
+        .response-container h1 {
+            font-size: 1.5em;
+        }
+        .response-container h2 {
+            font-size: 1.3em;
+        }
+        .response-container h3 {
+            font-size: 1.15em;
+        }
+        .response-container h4 {
+            font-size: 1.05em;
+        }
         .response-container h5,
-        .response-container h6 { font-size: 1em; }
+        .response-container h6 {
+            font-size: 1em;
+        }
 
         .response-container p {
             margin: 0.6em 0;
@@ -324,12 +334,7 @@ export class AssistantView extends LitElement {
         .analyze-shimmer {
             position: absolute;
             inset: 0;
-            background: linear-gradient(
-                90deg,
-                transparent,
-                rgba(255, 255, 255, 0.08),
-                transparent
-            );
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
             transform: translateX(-100%);
             z-index: 0;
             pointer-events: none;
@@ -354,7 +359,7 @@ export class AssistantView extends LitElement {
             transition: opacity 0.5s ease;
             z-index: -3;
         }
-        
+
         .analyze-btn.analyzing .analyze-glow {
             opacity: 1;
             animation: pulseGlow 3s ease-in-out infinite alternate;
@@ -377,23 +382,39 @@ export class AssistantView extends LitElement {
         }
 
         @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(100%);
+            }
         }
 
         @keyframes pulseGlow {
-            0% { opacity: 0.4; }
-            100% { opacity: 0.9; }
+            0% {
+                opacity: 0.4;
+            }
+            100% {
+                opacity: 0.9;
+            }
         }
 
         @keyframes breatheText {
-            0% { opacity: 0.7; }
-            100% { opacity: 1; }
+            0% {
+                opacity: 0.7;
+            }
+            100% {
+                opacity: 1;
+            }
         }
     `;
 
@@ -584,8 +605,6 @@ export class AssistantView extends LitElement {
         }
     }
 
-
-
     scrollToBottom() {
         setTimeout(() => {
             const container = this.shadowRoot.querySelector('.response-container');
@@ -629,53 +648,88 @@ export class AssistantView extends LitElement {
         return html`
             <div class="response-container" id="responseContainer"></div>
 
-            ${hasMultipleResponses ? html`
-                <div class="response-nav">
-                    <button class="nav-btn" @click=${this.navigateToPreviousResponse} ?disabled=${this.currentResponseIndex <= 0} title="Previous response">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <span class="response-counter">${this.currentResponseIndex + 1} of ${this.responses.length}</span>
-                    <button class="nav-btn" @click=${this.navigateToNextResponse} ?disabled=${this.currentResponseIndex >= this.responses.length - 1} title="Next response">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                </div>
-            ` : ''}
+            ${hasMultipleResponses
+                ? html`
+                      <div class="response-nav">
+                          <button
+                              class="nav-btn"
+                              @click=${this.navigateToPreviousResponse}
+                              ?disabled=${this.currentResponseIndex <= 0}
+                              title="Previous response"
+                          >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                  <path
+                                      fill-rule="evenodd"
+                                      d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"
+                                      clip-rule="evenodd"
+                                  />
+                              </svg>
+                          </button>
+                          <span class="response-counter">${this.currentResponseIndex + 1} of ${this.responses.length}</span>
+                          <button
+                              class="nav-btn"
+                              @click=${this.navigateToNextResponse}
+                              ?disabled=${this.currentResponseIndex >= this.responses.length - 1}
+                              title="Next response"
+                          >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                  <path
+                                      fill-rule="evenodd"
+                                      d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z"
+                                      clip-rule="evenodd"
+                                  />
+                              </svg>
+                          </button>
+                      </div>
+                  `
+                : ''}
 
             <div class="input-bar">
                 <div class="input-bar-inner">
-                    <input
-                        type="text"
-                        id="textInput"
-                        placeholder="Type a message..."
-                        @keydown=${this.handleTextKeydown}
-                    />
+                    <input type="text" id="textInput" placeholder="Type a message..." @keydown=${this.handleTextKeydown} />
                 </div>
                 <button class="analyze-btn ${this.isAnalyzing ? 'analyzing' : ''}" @click=${this.handleScreenAnswer}>
                     <div class="analyze-glow"></div>
                     <div class="analyze-shimmer"></div>
                     <span class="analyze-btn-content">
-                        ${this.isAnalyzing ? html`
-                            <svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <line x1="12" y1="2" x2="12" y2="6"></line>
-                                <line x1="12" y1="18" x2="12" y2="22"></line>
-                                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
-                                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
-                                <line x1="2" y1="12" x2="6" y2="12"></line>
-                                <line x1="18" y1="12" x2="22" y2="12"></line>
-                                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
-                                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
-                            </svg>
-                            Analyzing...
-                        ` : html`
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24">
-                                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 3v7h6l-8 11v-7H5z" />
-                            </svg>
-                            Analyze Screen
-                        `}
+                        ${this.isAnalyzing
+                            ? html`
+                                  <svg
+                                      class="spinner"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      stroke-width="2"
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                  >
+                                      <line x1="12" y1="2" x2="12" y2="6"></line>
+                                      <line x1="12" y1="18" x2="12" y2="22"></line>
+                                      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                                      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                                      <line x1="2" y1="12" x2="6" y2="12"></line>
+                                      <line x1="18" y1="12" x2="22" y2="12"></line>
+                                      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                                      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                                  </svg>
+                                  Analyzing...
+                              `
+                            : html`
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24">
+                                      <path
+                                          fill="none"
+                                          stroke="currentColor"
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          stroke-width="2"
+                                          d="M13 3v7h6l-8 11v-7H5z"
+                                      />
+                                  </svg>
+                                  Analyze Screen
+                              `}
                     </span>
                 </button>
             </div>

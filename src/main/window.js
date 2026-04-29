@@ -143,15 +143,24 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
 
     const isMac = process.platform === 'darwin';
     const prefix = isMac ? 'mac_' : 'win_';
-    
+
     // Normalize keybinds for the current platform
     const activeKeybinds = {};
     const actions = [
-        'moveUp', 'moveDown', 'moveLeft', 'moveRight', 'toggleVisibility', 
-        'toggleClickThrough', 'nextStep', 'previousResponse', 'nextResponse', 
-        'scrollUp', 'scrollDown', 'emergencyErase'
+        'moveUp',
+        'moveDown',
+        'moveLeft',
+        'moveRight',
+        'toggleVisibility',
+        'toggleClickThrough',
+        'nextStep',
+        'previousResponse',
+        'nextResponse',
+        'scrollUp',
+        'scrollDown',
+        'emergencyErase',
     ];
-    
+
     actions.forEach(action => {
         activeKeybinds[action] = keybinds[`${prefix}${action}`] || keybinds[action] || getDefaultKeybinds()[action];
     });

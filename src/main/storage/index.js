@@ -1,5 +1,6 @@
 const fs = require('fs');
 const { logger } = require('../utils/logger');
+const { safeStorage } = require('electron');
 const path = require('path');
 const os = require('os');
 
@@ -109,6 +110,33 @@ function writeJsonFile(filePath, data) {
     }
 }
 
+// Encryption helpers
+function encryptString(str) {
+    if (!str || !safeStorage || !safeStorage.isEncryptionAvailable()) {
+        return str;
+    }
+    try {
+        return safeStorage.encryptString(str).toString('base64');
+    } catch (error) {
+        logger.error('Encryption error:', error.message);
+        return str;
+    }
+}
+
+function decryptString(encryptedStr) {
+    if (!encryptedStr || !safeStorage || !safeStorage.isEncryptionAvailable()) {
+        return encryptedStr;
+    }
+    try {
+        const buffer = Buffer.from(encryptedStr, 'base64');
+        return safeStorage.decryptString(buffer);
+    } catch (error) {
+        // If decryption fails, it might be plain text from an older version
+        logger.warn('Decryption failed, returning original string (might be legacy plain text)');
+        return encryptedStr;
+    }
+}
+
 // Check if we need to reset (no configVersion or wrong version)
 function needsReset() {
     const configPath = getConfigPath();
@@ -181,13 +209,26 @@ function updateConfig(key, value) {
 // ============ CREDENTIALS ============
 
 function getCredentials() {
-    return readJsonFile(getCredentialsPath(), DEFAULT_CREDENTIALS);
+    const creds = readJsonFile(getCredentialsPath(), DEFAULT_CREDENTIALS);
+    return {
+        ...creds,
+        apiKey: decryptString(creds.apiKey),
+        groqApiKey: decryptString(creds.groqApiKey),
+    };
 }
 
 function setCredentials(credentials) {
     const current = getCredentials();
     const updated = { ...current, ...credentials };
-    return writeJsonFile(getCredentialsPath(), updated);
+
+    // Encrypt sensitive fields before saving
+    const toSave = {
+        ...updated,
+        apiKey: encryptString(updated.apiKey),
+        groqApiKey: encryptString(updated.groqApiKey),
+    };
+
+    return writeJsonFile(getCredentialsPath(), toSave);
 }
 
 function getApiKey() {

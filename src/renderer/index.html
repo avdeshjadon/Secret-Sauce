@@ -182,6 +182,82 @@
                 width: 100%;
                 height: 100%;
             }
+
+            /* Animations */
+            @keyframes pulse-thinking {
+                0% {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+                50% {
+                    opacity: 0.6;
+                    transform: scale(0.98);
+                }
+                100% {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+            }
+
+            .thinking-pulse {
+                animation: pulse-thinking 2s infinite ease-in-out;
+            }
+
+            /* Confidence Meter */
+            .confidence-container {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 3px;
+                background: rgba(255, 255, 255, 0.05);
+                z-index: 100;
+                overflow: hidden;
+            }
+
+            .confidence-bar {
+                height: 100%;
+                width: 0%;
+                background: var(--accent);
+                transition:
+                    width 0.5s ease,
+                    background 0.5s ease;
+            }
+
+            /* Summary View */
+            .summary-view {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 90%;
+                max-width: 500px;
+                max-height: 80%;
+                background: var(--bg-surface);
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-lg);
+                padding: var(--space-lg);
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                z-index: 1000;
+                overflow-y: auto;
+                display: none;
+            }
+
+            .summary-view.visible {
+                display: block;
+                animation: fadeIn 0.3s ease;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translate(-50%, -45%);
+                }
+                to {
+                    opacity: 1;
+                    transform: translate(-50%, -50%);
+                }
+            }
         </style>
     </head>
     <body>
@@ -191,6 +267,30 @@
         <script type="module" src="components/app/SecretSauceApp.js"></script>
 
         <secret-sauce-app id="secretSauce"></secret-sauce-app>
+
+        <div id="confidenceMeter" class="confidence-container">
+            <div class="confidence-bar"></div>
+        </div>
+
+        <div id="summaryModal" class="summary-view">
+            <h2 style="margin-top: 0; font-size: 1.2rem; color: var(--accent)">Meeting Summary</h2>
+            <div id="summaryContent"></div>
+            <button
+                onclick="document.getElementById('summaryModal').classList.remove('visible')"
+                style="
+                    margin-top: 20px;
+                    padding: 8px 16px;
+                    background: var(--bg-hover);
+                    border: 1px solid var(--border);
+                    border-radius: 4px;
+                    color: white;
+                    cursor: pointer;
+                "
+            >
+                Close
+            </button>
+        </div>
+
         <script src="renderer.js"></script>
     </body>
 </html>
