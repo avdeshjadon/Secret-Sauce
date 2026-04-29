@@ -262,41 +262,138 @@ export class AssistantView extends LitElement {
             height: 32px;
             display: flex;
             align-items: center;
-            gap: 4px;
-            transition: border-color 0.4s ease, background var(--transition);
+            gap: 6px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             flex-shrink: 0;
             overflow: hidden;
+            z-index: 1;
         }
 
         .analyze-btn:hover:not(.analyzing) {
             border-color: var(--accent);
             background: var(--bg-surface);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .analyze-btn:active:not(.analyzing) {
+            transform: translateY(0);
         }
 
         .analyze-btn.analyzing {
             cursor: default;
             border-color: transparent;
+            background: transparent;
+            color: var(--text-primary);
+        }
+
+        /* The spinning gradient border */
+        .analyze-btn.analyzing::before {
+            content: '';
+            position: absolute;
+            width: 300%;
+            height: 300%;
+            top: -100%;
+            left: -100%;
+            background: conic-gradient(
+                from 0deg,
+                transparent 0%,
+                transparent 40%,
+                var(--accent, #6366f1) 50%,
+                var(--danger, #ec4899) 60%,
+                var(--accent, #6366f1) 70%,
+                transparent 100%
+            );
+            animation: spin 3s linear infinite;
+            filter: blur(8px);
+            z-index: -2;
+            will-change: transform;
+        }
+
+        /* Inner Background to obscure the middle of the conic gradient */
+        .analyze-btn.analyzing::after {
+            content: '';
+            position: absolute;
+            inset: 1.5px; /* Thicker border */
+            background: var(--bg-elevated, #1e1e1e);
+            border-radius: 100px;
+            z-index: -1;
+        }
+
+        /* Subtle Shimmer Overlay */
+        .analyze-shimmer {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.08),
+                transparent
+            );
+            transform: translateX(-100%);
+            z-index: 0;
+            pointer-events: none;
+            border-radius: 100px;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        .analyze-btn.analyzing .analyze-shimmer {
+            opacity: 1;
+            animation: shimmer 2s infinite ease-in-out;
+            will-change: transform;
+        }
+
+        /* Glow effect */
+        .analyze-glow {
+            position: absolute;
+            inset: 0;
+            border-radius: 100px;
+            box-shadow: 0 0 20px var(--accent, rgba(99, 102, 241, 0.4));
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: -3;
+        }
+        
+        .analyze-btn.analyzing .analyze-glow {
+            opacity: 1;
+            animation: pulseGlow 3s ease-in-out infinite alternate;
+        }
+
+        .analyze-btn.analyzing .analyze-btn-content {
+            animation: breatheText 2s ease-in-out infinite alternate;
         }
 
         .analyze-btn-content {
             display: flex;
             align-items: center;
-            gap: 4px;
-            transition: opacity 0.4s ease;
+            gap: 6px;
             z-index: 1;
             position: relative;
         }
 
-        .analyze-btn.analyzing .analyze-btn-content {
-            opacity: 0;
+        .spinner {
+            animation: spin 1.2s linear infinite;
         }
 
-        .analyze-canvas {
-            position: absolute;
-            inset: -1px;
-            width: calc(100% + 2px);
-            height: calc(100% + 2px);
-            pointer-events: none;
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        @keyframes pulseGlow {
+            0% { opacity: 0.4; }
+            100% { opacity: 0.9; }
+        }
+
+        @keyframes breatheText {
+            0% { opacity: 0.7; }
+            100% { opacity: 1; }
         }
     `;
 
@@ -440,11 +537,15 @@ export class AssistantView extends LitElement {
             ipcRenderer.on('scroll-response-up', this.handleScrollUp);
             ipcRenderer.on('scroll-response-down', this.handleScrollDown);
         }
+
+        this.handleAnalysisComplete = () => {
+            this.isAnalyzing = false;
+        };
+        window.addEventListener('manual-analysis-complete', this.handleAnalysisComplete);
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        this._stopWaveformAnimation();
 
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
@@ -452,6 +553,10 @@ export class AssistantView extends LitElement {
             if (this.handleNextResponse) ipcRenderer.removeListener('navigate-next-response', this.handleNextResponse);
             if (this.handleScrollUp) ipcRenderer.removeListener('scroll-response-up', this.handleScrollUp);
             if (this.handleScrollDown) ipcRenderer.removeListener('scroll-response-down', this.handleScrollDown);
+        }
+
+        if (this.handleAnalysisComplete) {
+            window.removeEventListener('manual-analysis-complete', this.handleAnalysisComplete);
         }
     }
 
@@ -475,147 +580,11 @@ export class AssistantView extends LitElement {
         if (this.isAnalyzing) return;
         if (window.captureManualScreenshot) {
             this.isAnalyzing = true;
-            this._responseCountWhenStarted = this.responses.length;
             window.captureManualScreenshot();
         }
     }
 
-    _startWaveformAnimation() {
-        const canvas = this.shadowRoot.querySelector('.analyze-canvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
 
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
-
-        const dangerColor = getComputedStyle(this).getPropertyValue('--danger').trim() || '#EF4444';
-        const startTime = performance.now();
-        const FADE_IN = 0.5; // seconds
-        const PARTICLE_SPREAD = 4; // px inward from border
-        const PARTICLE_COUNT = 250;
-
-        // Pill perimeter helpers
-        const w = rect.width;
-        const h = rect.height;
-        const r = h / 2; // pill radius = half height
-        const straightLen = w - 2 * r;
-        const arcLen = Math.PI * r;
-        const perimeter = 2 * straightLen + 2 * arcLen;
-
-        // Given a distance along the perimeter, return {x, y, nx, ny} (position + inward normal)
-        const pointOnPerimeter = (d) => {
-            d = ((d % perimeter) + perimeter) % perimeter;
-            // Top straight: left to right
-            if (d < straightLen) {
-                return { x: r + d, y: 0, nx: 0, ny: 1 };
-            }
-            d -= straightLen;
-            // Right arc
-            if (d < arcLen) {
-                const angle = -Math.PI / 2 + (d / arcLen) * Math.PI;
-                return {
-                    x: w - r + Math.cos(angle) * r,
-                    y: r + Math.sin(angle) * r,
-                    nx: -Math.cos(angle),
-                    ny: -Math.sin(angle),
-                };
-            }
-            d -= arcLen;
-            // Bottom straight: right to left
-            if (d < straightLen) {
-                return { x: w - r - d, y: h, nx: 0, ny: -1 };
-            }
-            d -= straightLen;
-            // Left arc
-            const angle = Math.PI / 2 + (d / arcLen) * Math.PI;
-            return {
-                x: r + Math.cos(angle) * r,
-                y: r + Math.sin(angle) * r,
-                nx: -Math.cos(angle),
-                ny: -Math.sin(angle),
-            };
-        };
-
-        // Pre-seed random offsets for stable particles
-        const seeds = [];
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-            seeds.push({ pos: Math.random(), drift: Math.random(), depthSeed: Math.random() });
-        }
-
-        const draw = (now) => {
-            const elapsed = (now - startTime) / 1000;
-            const fade = Math.min(1, elapsed / FADE_IN);
-
-            ctx.clearRect(0, 0, w, h);
-
-            // ── Particle border ──
-            ctx.fillStyle = dangerColor;
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const s = seeds[i];
-                const along = (s.pos + s.drift * elapsed * 0.03) * perimeter;
-                const depth = s.depthSeed * PARTICLE_SPREAD;
-                const density = 1 - depth / PARTICLE_SPREAD;
-
-                if (Math.random() > density) continue;
-
-                const p = pointOnPerimeter(along);
-                const px = p.x + p.nx * depth;
-                const py = p.y + p.ny * depth;
-                const size = 0.8 + density * 0.6;
-
-                ctx.globalAlpha = fade * density * 0.85;
-                ctx.beginPath();
-                ctx.arc(px, py, size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // ── Waveform ──
-            const midY = h / 2;
-            const waves = [
-                { freq: 3, amp: 0.35, speed: 2.5, opacity: 0.9, width: 1.8 },
-                { freq: 5, amp: 0.2, speed: 3.5, opacity: 0.5, width: 1.2 },
-                { freq: 7, amp: 0.12, speed: 5, opacity: 0.3, width: 0.8 },
-            ];
-
-            for (const wave of waves) {
-                ctx.beginPath();
-                ctx.strokeStyle = dangerColor;
-                ctx.globalAlpha = wave.opacity * fade;
-                ctx.lineWidth = wave.width;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-
-                for (let x = 0; x <= w; x++) {
-                    const norm = x / w;
-                    const envelope = Math.sin(norm * Math.PI);
-                    const y = midY + Math.sin(norm * Math.PI * 2 * wave.freq + elapsed * wave.speed) * (midY * wave.amp) * envelope;
-                    if (x === 0) ctx.moveTo(x, y);
-                    else ctx.lineTo(x, y);
-                }
-                ctx.stroke();
-            }
-
-            ctx.globalAlpha = 1;
-            this._animFrame = requestAnimationFrame(draw);
-        };
-
-        this._animFrame = requestAnimationFrame(draw);
-    }
-
-    _stopWaveformAnimation() {
-        if (this._animFrame) {
-            cancelAnimationFrame(this._animFrame);
-            this._animFrame = null;
-        }
-        const canvas = this.shadowRoot.querySelector('.analyze-canvas');
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-    }
 
     scrollToBottom() {
         setTimeout(() => {
@@ -638,17 +607,7 @@ export class AssistantView extends LitElement {
         }
 
         if (changedProperties.has('isAnalyzing')) {
-            if (this.isAnalyzing) {
-                this._startWaveformAnimation();
-            } else {
-                this._stopWaveformAnimation();
-            }
-        }
-
-        if (changedProperties.has('responses') && this.isAnalyzing) {
-            if (this.responses.length > this._responseCountWhenStarted) {
-                this.isAnalyzing = false;
-            }
+            // CSS animations handle the state changes automatically via the .analyzing class
         }
     }
 
@@ -696,12 +655,27 @@ export class AssistantView extends LitElement {
                     />
                 </div>
                 <button class="analyze-btn ${this.isAnalyzing ? 'analyzing' : ''}" @click=${this.handleScreenAnswer}>
-                    <canvas class="analyze-canvas"></canvas>
+                    <div class="analyze-glow"></div>
+                    <div class="analyze-shimmer"></div>
                     <span class="analyze-btn-content">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24">
-                            <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 3v7h6l-8 11v-7H5z" />
-                        </svg>
-                        Analyze Screen
+                        ${this.isAnalyzing ? html`
+                            <svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="2" x2="12" y2="6"></line>
+                                <line x1="12" y1="18" x2="12" y2="22"></line>
+                                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                                <line x1="2" y1="12" x2="6" y2="12"></line>
+                                <line x1="18" y1="12" x2="22" y2="12"></line>
+                                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                            </svg>
+                            Analyzing...
+                        ` : html`
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24">
+                                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 3v7h6l-8 11v-7H5z" />
+                            </svg>
+                            Analyze Screen
+                        `}
                     </span>
                 </button>
             </div>

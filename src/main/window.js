@@ -141,6 +141,21 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     // Unregister all existing shortcuts
     globalShortcut.unregisterAll();
 
+    const isMac = process.platform === 'darwin';
+    const prefix = isMac ? 'mac_' : 'win_';
+    
+    // Normalize keybinds for the current platform
+    const activeKeybinds = {};
+    const actions = [
+        'moveUp', 'moveDown', 'moveLeft', 'moveRight', 'toggleVisibility', 
+        'toggleClickThrough', 'nextStep', 'previousResponse', 'nextResponse', 
+        'scrollUp', 'scrollDown', 'emergencyErase'
+    ];
+    
+    actions.forEach(action => {
+        activeKeybinds[action] = keybinds[`${prefix}${action}`] || keybinds[action] || getDefaultKeybinds()[action];
+    });
+
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
     const moveIncrement = Math.floor(Math.min(width, height) * 0.1);
@@ -169,7 +184,7 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     };
 
     Object.keys(movementActions).forEach(action => {
-        const keybind = keybinds[action];
+        const keybind = activeKeybinds[action];
         if (keybind) {
             try {
                 globalShortcut.register(keybind, movementActions[action]);
@@ -181,25 +196,25 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     });
 
     // Register toggle visibility shortcut
-    if (keybinds.toggleVisibility) {
+    if (activeKeybinds.toggleVisibility) {
         try {
-            globalShortcut.register(keybinds.toggleVisibility, () => {
+            globalShortcut.register(activeKeybinds.toggleVisibility, () => {
                 if (mainWindow.isVisible()) {
                     mainWindow.hide();
                 } else {
                     mainWindow.showInactive();
                 }
             });
-            logger.info(`Registered toggleVisibility: ${keybinds.toggleVisibility}`);
+            logger.info(`Registered toggleVisibility: ${activeKeybinds.toggleVisibility}`);
         } catch (error) {
-            logger.error(`Failed to register toggleVisibility (${keybinds.toggleVisibility}):`, error);
+            logger.error(`Failed to register toggleVisibility (${activeKeybinds.toggleVisibility}):`, error);
         }
     }
 
     // Register toggle click-through shortcut
-    if (keybinds.toggleClickThrough) {
+    if (activeKeybinds.toggleClickThrough) {
         try {
-            globalShortcut.register(keybinds.toggleClickThrough, () => {
+            globalShortcut.register(activeKeybinds.toggleClickThrough, () => {
                 mouseEventsIgnored = !mouseEventsIgnored;
                 if (mouseEventsIgnored) {
                     mainWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -210,20 +225,19 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                 }
                 mainWindow.webContents.send('click-through-toggled', mouseEventsIgnored);
             });
-            logger.info(`Registered toggleClickThrough: ${keybinds.toggleClickThrough}`);
+            logger.info(`Registered toggleClickThrough: ${activeKeybinds.toggleClickThrough}`);
         } catch (error) {
-            logger.error(`Failed to register toggleClickThrough (${keybinds.toggleClickThrough}):`, error);
+            logger.error(`Failed to register toggleClickThrough (${activeKeybinds.toggleClickThrough}):`, error);
         }
     }
 
     // Register next step shortcut (either starts session or takes screenshot based on view)
-    if (keybinds.nextStep) {
+    if (activeKeybinds.nextStep) {
         try {
-            globalShortcut.register(keybinds.nextStep, async () => {
+            globalShortcut.register(activeKeybinds.nextStep, async () => {
                 logger.info('Next step shortcut triggered');
                 try {
                     // Determine the shortcut key format
-                    const isMac = process.platform === 'darwin';
                     const shortcutKey = isMac ? 'cmd+enter' : 'ctrl+enter';
 
                     // Use the new handleShortcut function
@@ -234,68 +248,68 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     logger.error('Error handling next step shortcut:', error);
                 }
             });
-            logger.info(`Registered nextStep: ${keybinds.nextStep}`);
+            logger.info(`Registered nextStep: ${activeKeybinds.nextStep}`);
         } catch (error) {
-            logger.error(`Failed to register nextStep (${keybinds.nextStep}):`, error);
+            logger.error(`Failed to register nextStep (${activeKeybinds.nextStep}):`, error);
         }
     }
 
     // Register previous response shortcut
-    if (keybinds.previousResponse) {
+    if (activeKeybinds.previousResponse) {
         try {
-            globalShortcut.register(keybinds.previousResponse, () => {
+            globalShortcut.register(activeKeybinds.previousResponse, () => {
                 logger.info('Previous response shortcut triggered');
                 sendToRenderer('navigate-previous-response');
             });
-            logger.info(`Registered previousResponse: ${keybinds.previousResponse}`);
+            logger.info(`Registered previousResponse: ${activeKeybinds.previousResponse}`);
         } catch (error) {
-            logger.error(`Failed to register previousResponse (${keybinds.previousResponse}):`, error);
+            logger.error(`Failed to register previousResponse (${activeKeybinds.previousResponse}):`, error);
         }
     }
 
     // Register next response shortcut
-    if (keybinds.nextResponse) {
+    if (activeKeybinds.nextResponse) {
         try {
-            globalShortcut.register(keybinds.nextResponse, () => {
+            globalShortcut.register(activeKeybinds.nextResponse, () => {
                 logger.info('Next response shortcut triggered');
                 sendToRenderer('navigate-next-response');
             });
-            logger.info(`Registered nextResponse: ${keybinds.nextResponse}`);
+            logger.info(`Registered nextResponse: ${activeKeybinds.nextResponse}`);
         } catch (error) {
-            logger.error(`Failed to register nextResponse (${keybinds.nextResponse}):`, error);
+            logger.error(`Failed to register nextResponse (${activeKeybinds.nextResponse}):`, error);
         }
     }
 
     // Register scroll up shortcut
-    if (keybinds.scrollUp) {
+    if (activeKeybinds.scrollUp) {
         try {
-            globalShortcut.register(keybinds.scrollUp, () => {
+            globalShortcut.register(activeKeybinds.scrollUp, () => {
                 logger.info('Scroll up shortcut triggered');
                 sendToRenderer('scroll-response-up');
             });
-            logger.info(`Registered scrollUp: ${keybinds.scrollUp}`);
+            logger.info(`Registered scrollUp: ${activeKeybinds.scrollUp}`);
         } catch (error) {
-            logger.error(`Failed to register scrollUp (${keybinds.scrollUp}):`, error);
+            logger.error(`Failed to register scrollUp (${activeKeybinds.scrollUp}):`, error);
         }
     }
 
     // Register scroll down shortcut
-    if (keybinds.scrollDown) {
+    if (activeKeybinds.scrollDown) {
         try {
-            globalShortcut.register(keybinds.scrollDown, () => {
+            globalShortcut.register(activeKeybinds.scrollDown, () => {
                 logger.info('Scroll down shortcut triggered');
                 sendToRenderer('scroll-response-down');
             });
-            logger.info(`Registered scrollDown: ${keybinds.scrollDown}`);
+            logger.info(`Registered scrollDown: ${activeKeybinds.scrollDown}`);
         } catch (error) {
-            logger.error(`Failed to register scrollDown (${keybinds.scrollDown}):`, error);
+            logger.error(`Failed to register scrollDown (${activeKeybinds.scrollDown}):`, error);
         }
     }
 
     // Register emergency erase shortcut
-    if (keybinds.emergencyErase) {
+    if (activeKeybinds.emergencyErase) {
         try {
-            globalShortcut.register(keybinds.emergencyErase, () => {
+            globalShortcut.register(activeKeybinds.emergencyErase, () => {
                 logger.info('Emergency Erase triggered!');
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.hide();
@@ -313,9 +327,9 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     }, 300);
                 }
             });
-            logger.info(`Registered emergencyErase: ${keybinds.emergencyErase}`);
+            logger.info(`Registered emergencyErase: ${activeKeybinds.emergencyErase}`);
         } catch (error) {
-            logger.error(`Failed to register emergencyErase (${keybinds.emergencyErase}):`, error);
+            logger.error(`Failed to register emergencyErase (${activeKeybinds.emergencyErase}):`, error);
         }
     }
 }

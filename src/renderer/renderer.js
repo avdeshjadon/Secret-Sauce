@@ -596,12 +596,14 @@ async function captureManualScreenshot(imageQuality = null) {
     if (!mediaStream) {
         console.error('No media stream available for screenshot capture');
         secretSauce.setStatus('Error: Screen capture not available. Restart session.');
+        window.dispatchEvent(new CustomEvent('manual-analysis-complete'));
         return;
     }
 
     if (mediaStream.getVideoTracks().length === 0 || mediaStream.getVideoTracks()[0].readyState === 'ended') {
         console.error('Video track ended or missing');
         secretSauce.setStatus('Error: Screen capture stopped. Restart session.');
+        window.dispatchEvent(new CustomEvent('manual-analysis-complete'));
         return;
     }
 
@@ -628,6 +630,7 @@ async function captureManualScreenshot(imageQuality = null) {
     // Check if video is ready
     if (hiddenVideo.readyState < 2) {
         console.warn('Video not ready yet, skipping screenshot');
+        window.dispatchEvent(new CustomEvent('manual-analysis-complete'));
         return;
     }
 
@@ -664,6 +667,7 @@ async function captureManualScreenshot(imageQuality = null) {
         async blob => {
             if (!blob) {
                 console.error('Failed to create blob from canvas');
+                window.dispatchEvent(new CustomEvent('manual-analysis-complete'));
                 return;
             }
 
@@ -673,6 +677,7 @@ async function captureManualScreenshot(imageQuality = null) {
 
                 if (!base64data || base64data.length < 100) {
                     console.error('Invalid base64 data generated');
+                    window.dispatchEvent(new CustomEvent('manual-analysis-complete'));
                     return;
                 }
 
@@ -691,6 +696,7 @@ async function captureManualScreenshot(imageQuality = null) {
                     console.error('Failed to get image response:', result.error);
                     secretSauce.addNewResponse(`Error: ${result.error}`);
                 }
+                window.dispatchEvent(new CustomEvent('manual-analysis-complete'));
             };
             reader.readAsDataURL(blob);
         },

@@ -1,7 +1,7 @@
 {
     "name": "secret-sauce",
     "productName": "secret-sauce",
-    "version": "0.7.0",
+    "version": "1.0.0",
     "description": "secret sauce",
     "main": "src/main/index.js",
     "scripts": {
@@ -25,11 +25,11 @@
     "dependencies": {
         "@google/genai": "^1.2.0",
         "@huggingface/transformers": "^3.8.1",
-        "chalk": "^5.6.2",
+        "chalk": "^4.1.2",
         "consola": "^3.4.2",
         "electron-squirrel-startup": "^1.0.1",
         "ollama": "^0.6.3",
-        "ora": "^9.4.0",
+        "ora": "^5.4.1",
         "ws": "^8.19.0"
     },
     "devDependencies": {

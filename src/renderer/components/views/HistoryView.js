@@ -33,6 +33,56 @@ export class HistoryView extends LitElement {
                 padding-left: 30px;
             }
 
+            .header-actions {
+                display: flex;
+                align-items: center;
+                gap: var(--space-sm);
+                margin-bottom: var(--space-md);
+            }
+
+            .search-wrap {
+                position: relative;
+                flex: 1;
+                max-width: 280px;
+            }
+
+            .danger-btn {
+                background: rgba(239, 68, 68, 0.1);
+                color: var(--danger, #EF4444);
+                border: 1px solid rgba(239, 68, 68, 0.2);
+                border-radius: var(--radius-md);
+                padding: 6px 12px;
+                font-size: var(--font-size-xs);
+                font-weight: var(--font-weight-medium);
+                cursor: pointer;
+                transition: all var(--transition);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .danger-btn:hover {
+                background: rgba(239, 68, 68, 0.2);
+            }
+
+            .delete-btn {
+                background: none;
+                border: none;
+                color: var(--text-muted);
+                cursor: pointer;
+                padding: 4px;
+                border-radius: var(--radius-sm);
+                transition: all var(--transition);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .delete-btn:hover {
+                color: var(--danger, #EF4444);
+                background: rgba(239, 68, 68, 0.1);
+            }
+
             .list-shell {
                 border: 1px solid var(--border);
                 border-radius: var(--radius-md);
@@ -311,6 +361,25 @@ export class HistoryView extends LitElement {
         this.activeTab = 'conversation';
     }
 
+    async handleDeleteSession(e, sessionId) {
+        e.stopPropagation();
+        if (confirm('Are you sure you want to delete this session?')) {
+            await secretSauce.storage.deleteSession(sessionId);
+            this.loadSessions();
+            if (this.selectedSessionId === sessionId) {
+                this.closeSession();
+            }
+        }
+    }
+
+    async handleDeleteAll() {
+        if (confirm('Are you sure you want to delete ALL sessions? This cannot be undone.')) {
+            await secretSauce.storage.deleteAllSessions();
+            this.loadSessions();
+            this.closeSession();
+        }
+    }
+
     handleSearchInput(e) {
         this.searchQuery = e.target.value;
     }
@@ -434,18 +503,30 @@ export class HistoryView extends LitElement {
         return html`
             <div class="page-title">History</div>
 
-            <div class="search-wrap">
-                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"/>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-                <input
-                    class="control"
-                    type="text"
-                    placeholder="Search sessions..."
-                    .value=${this.searchQuery}
-                    @input=${this.handleSearchInput}
-                />
+            <div class="header-actions">
+                <div class="search-wrap">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input
+                        class="control"
+                        type="text"
+                        placeholder="Search sessions..."
+                        .value=${this.searchQuery}
+                        @input=${this.handleSearchInput}
+                    />
+                </div>
+                ${this.sessions.length > 0 ? html`
+                    <button class="danger-btn" @click=${this.handleDeleteAll}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"></path>
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                        </svg>
+                        Delete All
+                    </button>
+                ` : ''}
             </div>
 
             <section class="list-shell">
@@ -453,13 +534,22 @@ export class HistoryView extends LitElement {
                     ${this.loading ? html`<div class="empty" style="margin:var(--space-md);">Loading sessions...</div>` : ''}
                     ${!this.loading && filteredSessions.length === 0 ? html`<div class="empty" style="margin:var(--space-md);">No matching sessions.</div>` : ''}
                     ${!this.loading ? filteredSessions.map(session => html`
-                        <button class="session-card" @click=${() => this.openSession(session.sessionId)}>
+                        <div class="session-card" @click=${() => this.openSession(session.sessionId)} role="button" tabindex="0">
                             <div class="session-left">
                                 <span class="session-profile">${this._getProfileLabel(session)}</span>
                                 <span class="session-date">${this.formatDate(session.createdAt)} · ${this.formatTime(session.createdAt)}</span>
                             </div>
-                            ${session.messageCount > 0 ? html`<span class="session-badge">${session.messageCount}</span>` : ''}
-                        </button>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                ${session.messageCount > 0 ? html`<span class="session-badge">${session.messageCount}</span>` : ''}
+                                <button class="delete-btn" title="Delete session" @click=${(e) => this.handleDeleteSession(e, session.sessionId)}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 6h18"></path>
+                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
                     `) : ''}
                 </div>
             </section>

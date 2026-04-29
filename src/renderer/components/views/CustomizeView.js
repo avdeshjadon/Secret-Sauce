@@ -6,7 +6,11 @@ export class CustomizeView extends LitElement {
         unifiedPageStyles,
         css`
             .danger-surface {
-                border-color: var(--danger);
+                border-color: rgba(239, 68, 68, 0.3);
+            }
+
+            .surface-title.danger {
+                color: rgba(239, 68, 68, 0.7);
             }
 
             .warning-callout {
@@ -111,6 +115,26 @@ export class CustomizeView extends LitElement {
                 border: none;
             }
 
+            .keybind-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: var(--space-lg);
+            }
+
+            .os-column {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .os-title {
+                font-size: var(--font-size-sm);
+                font-weight: var(--font-weight-semibold);
+                color: var(--text-primary);
+                margin-bottom: var(--space-xs);
+                border-bottom: 1px solid var(--border);
+                padding-bottom: 8px;
+            }
+
             .keybind-row {
                 display: flex;
                 align-items: center;
@@ -121,6 +145,12 @@ export class CustomizeView extends LitElement {
 
             .keybind-row:last-of-type {
                 border-bottom: none;
+            }
+
+            @media (max-width: 820px) {
+                .keybind-grid {
+                    grid-template-columns: 1fr;
+                }
             }
 
             .keybind-name {
@@ -136,8 +166,8 @@ export class CustomizeView extends LitElement {
             }
 
             .danger-button {
-                border: 1px solid var(--danger);
-                color: var(--danger);
+                border: 1px solid rgba(239, 68, 68, 0.4);
+                color: rgba(239, 68, 68, 0.7);
                 background: transparent;
                 border-radius: var(--radius-sm);
                 padding: 9px 12px;
@@ -234,6 +264,13 @@ export class CustomizeView extends LitElement {
             this.theme = prefs.theme ?? 'dark';
             if (keybinds) {
                 this.keybinds = { ...this.getDefaultKeybinds(), ...keybinds };
+                const isMac = secretSauce.isMacOS || navigator.platform.includes('Mac');
+                const prefix = isMac ? 'mac_' : 'win_';
+                Object.keys(keybinds).forEach(key => {
+                    if (!key.startsWith('mac_') && !key.startsWith('win_')) {
+                        this.keybinds[prefix + key] = keybinds[key];
+                    }
+                });
             }
             this.updateBackgroundAppearance();
             this.updateFontSize();
@@ -290,19 +327,29 @@ export class CustomizeView extends LitElement {
     }
 
     getDefaultKeybinds() {
-        const isMac = secretSauce.isMacOS || navigator.platform.includes('Mac');
         return {
-            moveUp: isMac ? 'Alt+Up' : 'Ctrl+Up',
-            moveDown: isMac ? 'Alt+Down' : 'Ctrl+Down',
-            moveLeft: isMac ? 'Alt+Left' : 'Ctrl+Left',
-            moveRight: isMac ? 'Alt+Right' : 'Ctrl+Right',
-            toggleVisibility: isMac ? 'Cmd+\\' : 'Ctrl+\\',
-            toggleClickThrough: isMac ? 'Cmd+M' : 'Ctrl+M',
-            nextStep: isMac ? 'Cmd+Enter' : 'Ctrl+Enter',
-            previousResponse: isMac ? 'Cmd+[' : 'Ctrl+[',
-            nextResponse: isMac ? 'Cmd+]' : 'Ctrl+]',
-            scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
-            scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
+            mac_moveUp: 'Option+Up',
+            win_moveUp: 'Ctrl+Up',
+            mac_moveDown: 'Option+Down',
+            win_moveDown: 'Ctrl+Down',
+            mac_moveLeft: 'Option+Left',
+            win_moveLeft: 'Ctrl+Left',
+            mac_moveRight: 'Option+Right',
+            win_moveRight: 'Ctrl+Right',
+            mac_toggleVisibility: 'Cmd+\\',
+            win_toggleVisibility: 'Ctrl+\\',
+            mac_toggleClickThrough: 'Cmd+M',
+            win_toggleClickThrough: 'Ctrl+M',
+            mac_nextStep: 'Cmd+Enter',
+            win_nextStep: 'Ctrl+Enter',
+            mac_previousResponse: 'Cmd+[',
+            win_previousResponse: 'Ctrl+[',
+            mac_nextResponse: 'Cmd+]',
+            win_nextResponse: 'Ctrl+]',
+            mac_scrollUp: 'Cmd+Shift+Up',
+            win_scrollUp: 'Ctrl+Shift+Up',
+            mac_scrollDown: 'Cmd+Shift+Down',
+            win_scrollDown: 'Ctrl+Shift+Down',
         };
     }
 
@@ -418,10 +465,11 @@ export class CustomizeView extends LitElement {
 
     handleKeybindInput(e) {
         e.preventDefault();
+        const action = e.target.dataset.action;
         const modifiers = [];
         if (e.ctrlKey) modifiers.push('Ctrl');
         if (e.metaKey) modifiers.push('Cmd');
-        if (e.altKey) modifiers.push('Alt');
+        if (e.altKey) modifiers.push(action && action.startsWith('mac_') ? 'Option' : 'Alt');
         if (e.shiftKey) modifiers.push('Shift');
         let mainKey = e.key;
 
@@ -452,9 +500,8 @@ export class CustomizeView extends LitElement {
                 break;
         }
 
-        if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return;
+        if (['Control', 'Meta', 'Alt', 'Shift', 'Option'].includes(e.key)) return;
 
-        const action = e.target.dataset.action;
         const keybind = [...modifiers, mainKey].join('+');
         this.handleKeybindChange(action, keybind);
         e.target.value = keybind;
@@ -662,20 +709,42 @@ export class CustomizeView extends LitElement {
         return html`
             <section class="surface">
                 <div class="surface-title">Keyboard Shortcuts</div>
-                ${this.getKeybindActions().map(action => html`
-                    <div class="keybind-row">
-                        <span class="keybind-name">${action.name}</span>
-                        <input
-                            type="text"
-                            class="control keybind-input"
-                            .value=${this.keybinds[action.key]}
-                            data-action=${action.key}
-                            @keydown=${this.handleKeybindInput}
-                            @focus=${this.handleKeybindFocus}
-                            readonly
-                        />
+                <div class="keybind-grid">
+                    <div class="os-column">
+                        <div class="os-title">Mac</div>
+                        ${this.getKeybindActions().map(action => html`
+                            <div class="keybind-row">
+                                <span class="keybind-name">${action.name}</span>
+                                <input
+                                    type="text"
+                                    class="control keybind-input"
+                                    .value=${this.keybinds['mac_' + action.key] || ''}
+                                    data-action="mac_${action.key}"
+                                    @keydown=${this.handleKeybindInput}
+                                    @focus=${this.handleKeybindFocus}
+                                    readonly
+                                />
+                            </div>
+                        `)}
                     </div>
-                `)}
+                    <div class="os-column">
+                        <div class="os-title">Windows</div>
+                        ${this.getKeybindActions().map(action => html`
+                            <div class="keybind-row">
+                                <span class="keybind-name">${action.name}</span>
+                                <input
+                                    type="text"
+                                    class="control keybind-input"
+                                    .value=${this.keybinds['win_' + action.key] || ''}
+                                    data-action="win_${action.key}"
+                                    @keydown=${this.handleKeybindInput}
+                                    @focus=${this.handleKeybindFocus}
+                                    readonly
+                                />
+                            </div>
+                        `)}
+                    </div>
+                </div>
                 <div style="margin-top: var(--space-sm);">
                     <button class="control" style="width:auto;padding:8px 10px;" @click=${this.resetKeybinds}>Reset to defaults</button>
                 </div>
@@ -683,16 +752,13 @@ export class CustomizeView extends LitElement {
         `;
     }
 
-    renderPrivacySection() {
+    renderResetSection() {
         return html`
             <section class="surface danger-surface">
-                <div class="surface-title danger">Privacy and Data</div>
+                <div class="surface-title danger">Reset Settings</div>
                 <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;">
                     <button class="danger-button" @click=${this.restoreAllSettings} ?disabled=${this.isRestoring}>
                         ${this.isRestoring ? 'Restoring...' : 'Restore all settings'}
-                    </button>
-                    <button class="danger-button" @click=${this.clearLocalData} ?disabled=${this.isClearing}>
-                        ${this.isClearing ? 'Clearing...' : 'Delete all data'}
                     </button>
                 </div>
                 ${this.clearStatusMessage ? html`
@@ -711,7 +777,7 @@ export class CustomizeView extends LitElement {
                     ${this.renderLanguageSection()}
                     ${this.renderAppearanceSection()}
                     ${this.renderKeyboardSection()}
-                    ${this.renderPrivacySection()}
+                    ${this.renderResetSection()}
                 </div>
             </div>
         `;

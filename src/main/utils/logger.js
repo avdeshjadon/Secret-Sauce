@@ -17,7 +17,7 @@ const logger = createConsola({
  */
 const createSpinner = (text) => {
   return ora({
-    text: chalk.blue(text),
+    text: text,
     spinner: 'dots',
   });
 };
