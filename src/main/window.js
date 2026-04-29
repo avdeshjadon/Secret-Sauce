@@ -1,4 +1,5 @@
-const { BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer } = require('electron');
+const { logger } = require('./utils/logger');
 const path = require('node:path');
 const storage = require('./storage');
 
@@ -33,14 +34,40 @@ function createWindow(sendToRenderer, geminiSessionRef) {
     });
 
     const { session, desktopCapturer } = require('electron');
-    session.defaultSession.setDisplayMediaRequestHandler(
-        (request, callback) => {
-            desktopCapturer.getSources({ types: ['screen'] }).then(sources => {
-                callback({ video: sources[0], audio: 'loopback' });
+    session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+        desktopCapturer
+            .getSources({ types: ['screen'] })
+            .then(sources => {
+                if (sources.length > 0) {
+                    logger.info('Auto-selecting screen source:', sources[0].name);
+                    callback({ video: sources[0], audio: 'loopback' });
+                } else {
+                    logger.error('No screen sources found for display media handler');
+                    callback({});
+                }
+            })
+            .catch(err => {
+                logger.error('Error getting screen sources:', err);
+                callback({});
             });
-        },
-        { useSystemPicker: true }
-    );
+    });
+
+    // IPC handler for renderer to get screen sources (desktopCapturer is main-process only)
+    ipcMain.handle('get-desktop-sources', async () => {
+        try {
+            const sources = await desktopCapturer.getSources({
+                types: ['screen'],
+                thumbnailSize: { width: 1, height: 1 },
+            });
+            return {
+                success: true,
+                sources: sources.map(s => ({ id: s.id, name: s.name })),
+            };
+        } catch (error) {
+            logger.error('Error getting desktop sources:', error);
+            return { success: false, error: error.message };
+        }
+    });
 
     mainWindow.setContentProtection(true);
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -50,7 +77,7 @@ function createWindow(sendToRenderer, geminiSessionRef) {
         try {
             mainWindow.setSkipTaskbar(true);
         } catch (error) {
-            console.warn('Could not hide from taskbar:', error.message);
+            logger.warn('Could not hide from taskbar:', error.message);
         }
     }
 
@@ -59,7 +86,7 @@ function createWindow(sendToRenderer, geminiSessionRef) {
         try {
             mainWindow.setHiddenInMissionControl(true);
         } catch (error) {
-            console.warn('Could not hide from Mission Control:', error.message);
+            logger.warn('Could not hide from Mission Control:', error.message);
         }
     }
 
@@ -109,7 +136,7 @@ function getDefaultKeybinds() {
 }
 
 function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef) {
-    console.log('Updating global shortcuts with:', keybinds);
+    logger.info('Updating global shortcuts with:', keybinds);
 
     // Unregister all existing shortcuts
     globalShortcut.unregisterAll();
@@ -146,9 +173,9 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
         if (keybind) {
             try {
                 globalShortcut.register(keybind, movementActions[action]);
-                console.log(`Registered ${action}: ${keybind}`);
+                logger.info(`Registered ${action}: ${keybind}`);
             } catch (error) {
-                console.error(`Failed to register ${action} (${keybind}):`, error);
+                logger.error(`Failed to register ${action} (${keybind}):`, error);
             }
         }
     });
@@ -163,9 +190,9 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     mainWindow.showInactive();
                 }
             });
-            console.log(`Registered toggleVisibility: ${keybinds.toggleVisibility}`);
+            logger.info(`Registered toggleVisibility: ${keybinds.toggleVisibility}`);
         } catch (error) {
-            console.error(`Failed to register toggleVisibility (${keybinds.toggleVisibility}):`, error);
+            logger.error(`Failed to register toggleVisibility (${keybinds.toggleVisibility}):`, error);
         }
     }
 
@@ -176,16 +203,16 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                 mouseEventsIgnored = !mouseEventsIgnored;
                 if (mouseEventsIgnored) {
                     mainWindow.setIgnoreMouseEvents(true, { forward: true });
-                    console.log('Mouse events ignored');
+                    logger.info('Mouse events ignored');
                 } else {
                     mainWindow.setIgnoreMouseEvents(false);
-                    console.log('Mouse events enabled');
+                    logger.info('Mouse events enabled');
                 }
                 mainWindow.webContents.send('click-through-toggled', mouseEventsIgnored);
             });
-            console.log(`Registered toggleClickThrough: ${keybinds.toggleClickThrough}`);
+            logger.info(`Registered toggleClickThrough: ${keybinds.toggleClickThrough}`);
         } catch (error) {
-            console.error(`Failed to register toggleClickThrough (${keybinds.toggleClickThrough}):`, error);
+            logger.error(`Failed to register toggleClickThrough (${keybinds.toggleClickThrough}):`, error);
         }
     }
 
@@ -193,23 +220,23 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     if (keybinds.nextStep) {
         try {
             globalShortcut.register(keybinds.nextStep, async () => {
-                console.log('Next step shortcut triggered');
+                logger.info('Next step shortcut triggered');
                 try {
                     // Determine the shortcut key format
                     const isMac = process.platform === 'darwin';
                     const shortcutKey = isMac ? 'cmd+enter' : 'ctrl+enter';
 
                     // Use the new handleShortcut function
-                    mainWindow.webContents.executeJavaScript(`
+                    await mainWindow.webContents.executeJavaScript(`
                         secretSauce.handleShortcut('${shortcutKey}');
                     `);
                 } catch (error) {
-                    console.error('Error handling next step shortcut:', error);
+                    logger.error('Error handling next step shortcut:', error);
                 }
             });
-            console.log(`Registered nextStep: ${keybinds.nextStep}`);
+            logger.info(`Registered nextStep: ${keybinds.nextStep}`);
         } catch (error) {
-            console.error(`Failed to register nextStep (${keybinds.nextStep}):`, error);
+            logger.error(`Failed to register nextStep (${keybinds.nextStep}):`, error);
         }
     }
 
@@ -217,12 +244,12 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     if (keybinds.previousResponse) {
         try {
             globalShortcut.register(keybinds.previousResponse, () => {
-                console.log('Previous response shortcut triggered');
+                logger.info('Previous response shortcut triggered');
                 sendToRenderer('navigate-previous-response');
             });
-            console.log(`Registered previousResponse: ${keybinds.previousResponse}`);
+            logger.info(`Registered previousResponse: ${keybinds.previousResponse}`);
         } catch (error) {
-            console.error(`Failed to register previousResponse (${keybinds.previousResponse}):`, error);
+            logger.error(`Failed to register previousResponse (${keybinds.previousResponse}):`, error);
         }
     }
 
@@ -230,12 +257,12 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     if (keybinds.nextResponse) {
         try {
             globalShortcut.register(keybinds.nextResponse, () => {
-                console.log('Next response shortcut triggered');
+                logger.info('Next response shortcut triggered');
                 sendToRenderer('navigate-next-response');
             });
-            console.log(`Registered nextResponse: ${keybinds.nextResponse}`);
+            logger.info(`Registered nextResponse: ${keybinds.nextResponse}`);
         } catch (error) {
-            console.error(`Failed to register nextResponse (${keybinds.nextResponse}):`, error);
+            logger.error(`Failed to register nextResponse (${keybinds.nextResponse}):`, error);
         }
     }
 
@@ -243,12 +270,12 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     if (keybinds.scrollUp) {
         try {
             globalShortcut.register(keybinds.scrollUp, () => {
-                console.log('Scroll up shortcut triggered');
+                logger.info('Scroll up shortcut triggered');
                 sendToRenderer('scroll-response-up');
             });
-            console.log(`Registered scrollUp: ${keybinds.scrollUp}`);
+            logger.info(`Registered scrollUp: ${keybinds.scrollUp}`);
         } catch (error) {
-            console.error(`Failed to register scrollUp (${keybinds.scrollUp}):`, error);
+            logger.error(`Failed to register scrollUp (${keybinds.scrollUp}):`, error);
         }
     }
 
@@ -256,12 +283,12 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     if (keybinds.scrollDown) {
         try {
             globalShortcut.register(keybinds.scrollDown, () => {
-                console.log('Scroll down shortcut triggered');
+                logger.info('Scroll down shortcut triggered');
                 sendToRenderer('scroll-response-down');
             });
-            console.log(`Registered scrollDown: ${keybinds.scrollDown}`);
+            logger.info(`Registered scrollDown: ${keybinds.scrollDown}`);
         } catch (error) {
-            console.error(`Failed to register scrollDown (${keybinds.scrollDown}):`, error);
+            logger.error(`Failed to register scrollDown (${keybinds.scrollDown}):`, error);
         }
     }
 
@@ -269,7 +296,7 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
     if (keybinds.emergencyErase) {
         try {
             globalShortcut.register(keybinds.emergencyErase, () => {
-                console.log('Emergency Erase triggered!');
+                logger.info('Emergency Erase triggered!');
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.hide();
 
@@ -286,9 +313,9 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     }, 300);
                 }
             });
-            console.log(`Registered emergencyErase: ${keybinds.emergencyErase}`);
+            logger.info(`Registered emergencyErase: ${keybinds.emergencyErase}`);
         } catch (error) {
-            console.error(`Failed to register emergencyErase (${keybinds.emergencyErase}):`, error);
+            logger.error(`Failed to register emergencyErase (${keybinds.emergencyErase}):`, error);
         }
     }
 }
@@ -327,7 +354,7 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
             }
             return { success: true };
         } catch (error) {
-            console.error('Error toggling window visibility:', error);
+            logger.error('Error toggling window visibility:', error);
             return { success: false, error: error.message };
         }
     });

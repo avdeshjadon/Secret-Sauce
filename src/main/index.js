@@ -6,6 +6,7 @@ const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { createWindow, updateGlobalShortcuts } = require('./window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./ai/gemini');
 const storage = require('./storage');
+const { logger } = require('./utils/logger');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -54,7 +55,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getConfig() };
         } catch (error) {
-            console.error('Error getting config:', error);
+            logger.error('Error getting config:', error);
             return { success: false, error: error.message };
         }
     });
@@ -64,7 +65,7 @@ function setupStorageIpcHandlers() {
             storage.setConfig(config);
             return { success: true };
         } catch (error) {
-            console.error('Error setting config:', error);
+            logger.error('Error setting config:', error);
             return { success: false, error: error.message };
         }
     });
@@ -74,7 +75,7 @@ function setupStorageIpcHandlers() {
             storage.updateConfig(key, value);
             return { success: true };
         } catch (error) {
-            console.error('Error updating config:', error);
+            logger.error('Error updating config:', error);
             return { success: false, error: error.message };
         }
     });
@@ -84,7 +85,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getCredentials() };
         } catch (error) {
-            console.error('Error getting credentials:', error);
+            logger.error('Error getting credentials:', error);
             return { success: false, error: error.message };
         }
     });
@@ -94,7 +95,7 @@ function setupStorageIpcHandlers() {
             storage.setCredentials(credentials);
             return { success: true };
         } catch (error) {
-            console.error('Error setting credentials:', error);
+            logger.error('Error setting credentials:', error);
             return { success: false, error: error.message };
         }
     });
@@ -103,7 +104,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getApiKey() };
         } catch (error) {
-            console.error('Error getting API key:', error);
+            logger.error('Error getting API key:', error);
             return { success: false, error: error.message };
         }
     });
@@ -113,7 +114,7 @@ function setupStorageIpcHandlers() {
             storage.setApiKey(apiKey);
             return { success: true };
         } catch (error) {
-            console.error('Error setting API key:', error);
+            logger.error('Error setting API key:', error);
             return { success: false, error: error.message };
         }
     });
@@ -122,7 +123,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getGroqApiKey() };
         } catch (error) {
-            console.error('Error getting Groq API key:', error);
+            logger.error('Error getting Groq API key:', error);
             return { success: false, error: error.message };
         }
     });
@@ -132,7 +133,7 @@ function setupStorageIpcHandlers() {
             storage.setGroqApiKey(groqApiKey);
             return { success: true };
         } catch (error) {
-            console.error('Error setting Groq API key:', error);
+            logger.error('Error setting Groq API key:', error);
             return { success: false, error: error.message };
         }
     });
@@ -142,7 +143,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getPreferences() };
         } catch (error) {
-            console.error('Error getting preferences:', error);
+            logger.error('Error getting preferences:', error);
             return { success: false, error: error.message };
         }
     });
@@ -152,7 +153,7 @@ function setupStorageIpcHandlers() {
             storage.setPreferences(preferences);
             return { success: true };
         } catch (error) {
-            console.error('Error setting preferences:', error);
+            logger.error('Error setting preferences:', error);
             return { success: false, error: error.message };
         }
     });
@@ -162,7 +163,7 @@ function setupStorageIpcHandlers() {
             storage.updatePreference(key, value);
             return { success: true };
         } catch (error) {
-            console.error('Error updating preference:', error);
+            logger.error('Error updating preference:', error);
             return { success: false, error: error.message };
         }
     });
@@ -172,7 +173,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getKeybinds() };
         } catch (error) {
-            console.error('Error getting keybinds:', error);
+            logger.error('Error getting keybinds:', error);
             return { success: false, error: error.message };
         }
     });
@@ -182,7 +183,7 @@ function setupStorageIpcHandlers() {
             storage.setKeybinds(keybinds);
             return { success: true };
         } catch (error) {
-            console.error('Error setting keybinds:', error);
+            logger.error('Error setting keybinds:', error);
             return { success: false, error: error.message };
         }
     });
@@ -192,7 +193,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getAllSessions() };
         } catch (error) {
-            console.error('Error getting sessions:', error);
+            logger.error('Error getting sessions:', error);
             return { success: false, error: error.message };
         }
     });
@@ -201,7 +202,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getSession(sessionId) };
         } catch (error) {
-            console.error('Error getting session:', error);
+            logger.error('Error getting session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -211,7 +212,7 @@ function setupStorageIpcHandlers() {
             storage.saveSession(sessionId, data);
             return { success: true };
         } catch (error) {
-            console.error('Error saving session:', error);
+            logger.error('Error saving session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -221,7 +222,7 @@ function setupStorageIpcHandlers() {
             storage.deleteSession(sessionId);
             return { success: true };
         } catch (error) {
-            console.error('Error deleting session:', error);
+            logger.error('Error deleting session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -231,7 +232,7 @@ function setupStorageIpcHandlers() {
             storage.deleteAllSessions();
             return { success: true };
         } catch (error) {
-            console.error('Error deleting all sessions:', error);
+            logger.error('Error deleting all sessions:', error);
             return { success: false, error: error.message };
         }
     });
@@ -241,7 +242,7 @@ function setupStorageIpcHandlers() {
         try {
             return { success: true, data: storage.getTodayLimits() };
         } catch (error) {
-            console.error('Error getting today limits:', error);
+            logger.error('Error getting today limits:', error);
             return { success: false, error: error.message };
         }
     });
@@ -252,7 +253,7 @@ function setupStorageIpcHandlers() {
             storage.clearAllData();
             return { success: true };
         } catch (error) {
-            console.error('Error clearing all data:', error);
+            logger.error('Error clearing all data:', error);
             return { success: false, error: error.message };
         }
     });
@@ -269,7 +270,7 @@ function setupGeneralIpcHandlers() {
             app.quit();
             return { success: true };
         } catch (error) {
-            console.error('Error quitting application:', error);
+            logger.error('Error quitting application:', error);
             return { success: false, error: error.message };
         }
     });
@@ -279,7 +280,7 @@ function setupGeneralIpcHandlers() {
             await shell.openExternal(url);
             return { success: true };
         } catch (error) {
-            console.error('Error opening external URL:', error);
+            logger.error('Error opening external URL:', error);
             return { success: false, error: error.message };
         }
     });
@@ -294,6 +295,6 @@ function setupGeneralIpcHandlers() {
 
     // Debug logging from renderer
     ipcMain.on('log-message', (event, msg) => {
-        console.log(msg);
+        logger.info(msg);
     });
 }

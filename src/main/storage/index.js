@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { logger } = require('../utils/logger');
 const path = require('path');
 const os = require('os');
 
@@ -88,7 +89,7 @@ function readJsonFile(filePath, defaultValue) {
             return JSON.parse(data);
         }
     } catch (error) {
-        console.warn(`Error reading ${filePath}:`, error.message);
+        logger.warn(`Error reading ${filePath}:`, error.message);
     }
     return defaultValue;
 }
@@ -103,7 +104,7 @@ function writeJsonFile(filePath, data) {
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
         return true;
     } catch (error) {
-        console.error(`Error writing ${filePath}:`, error.message);
+        logger.error(`Error writing ${filePath}:`, error.message);
         return false;
     }
 }
@@ -127,7 +128,7 @@ function needsReset() {
 function resetConfigDir() {
     const configDir = getConfigDir();
 
-    console.log('Resetting config directory...');
+    logger.info('Resetting config directory...');
 
     // Remove existing directory if it exists
     if (fs.existsSync(configDir)) {
@@ -143,7 +144,7 @@ function resetConfigDir() {
     writeJsonFile(getCredentialsPath(), DEFAULT_CREDENTIALS);
     writeJsonFile(getPreferencesPath(), DEFAULT_PREFERENCES);
 
-    console.log('Config directory initialized with defaults');
+    logger.info('Config directory initialized with defaults');
 }
 
 // Initialize storage - call this on app startup
@@ -446,7 +447,7 @@ function getAllSessions() {
             })
             .filter(Boolean);
     } catch (error) {
-        console.error('Error reading sessions:', error.message);
+        logger.error('Error reading sessions:', error.message);
         return [];
     }
 }
@@ -459,7 +460,7 @@ function deleteSession(sessionId) {
             return true;
         }
     } catch (error) {
-        console.error('Error deleting session:', error.message);
+        logger.error('Error deleting session:', error.message);
     }
     return false;
 }
@@ -475,7 +476,7 @@ function deleteAllSessions() {
         }
         return true;
     } catch (error) {
-        console.error('Error deleting all sessions:', error.message);
+        logger.error('Error deleting all sessions:', error.message);
         return false;
     }
 }

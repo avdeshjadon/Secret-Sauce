@@ -106,7 +106,7 @@ const storage = {
     async getTodayLimits() {
         const result = await ipcRenderer.invoke('storage:get-today-limits');
         return result.success ? result.data : { flash: { count: 0 }, flashLite: { count: 0 } };
-    }
+    },
 };
 
 // Cache for preferences to avoid async calls in hot paths
@@ -205,7 +205,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 
     try {
         if (isMacOS) {
-            // On macOS, use SystemAudioDump for audio and getDisplayMedia for screen
+            // On macOS, use SystemAudioDump for audio and desktopCapturer for screen
             console.log('Starting macOS capture with SystemAudioDump...');
 
             // Start macOS audio capture
@@ -214,15 +214,49 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                 throw new Error('Failed to start macOS audio capture: ' + audioResult.error);
             }
 
-            // Get screen capture for screenshots
-            mediaStream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    frameRate: 1,
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                },
-                audio: false, // Don't use browser audio on macOS
-            });
+            // Get screen capture via IPC (desktopCapturer is main-process only in Electron 41+)
+            try {
+                const sourcesResult = await ipcRenderer.invoke('get-desktop-sources');
+
+                if (!sourcesResult.success || !sourcesResult.sources || sourcesResult.sources.length === 0) {
+                    throw new Error(
+                        'No screen sources found. Please grant Screen Recording permission in System Preferences > Privacy & Security > Screen Recording.'
+                    );
+                }
+
+                const screenSource = sourcesResult.sources[0];
+                console.log('Using screen source:', screenSource.name, 'id:', screenSource.id);
+
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: screenSource.id,
+                            maxFrameRate: 1,
+                            maxWidth: 1920,
+                            maxHeight: 1080,
+                        },
+                    },
+                });
+                console.log('getUserMedia screen capture succeeded, video tracks:', mediaStream.getVideoTracks().length);
+            } catch (screenErr) {
+                console.error('IPC screen capture failed:', screenErr);
+                // Fallback to getDisplayMedia (handler auto-selects screen without picker)
+                mediaStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        frameRate: 1,
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                    },
+                    audio: false,
+                });
+                console.log('getDisplayMedia fallback succeeded, video tracks:', mediaStream.getVideoTracks().length);
+            }
+
+            if (!mediaStream || mediaStream.getVideoTracks().length === 0) {
+                throw new Error('Failed to obtain screen capture stream on macOS. Check Screen Recording permission.');
+            }
 
             console.log('macOS screen capture started - audio handled by SystemAudioDump');
 
@@ -360,8 +394,8 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
         // Manual mode only - screenshots captured on demand via shortcut
         console.log('Manual mode enabled - screenshots will be captured on demand only');
     } catch (err) {
-        console.error('Error starting capture:', err);
-        secretSauce.setStatus('error');
+        console.error('Error starting capture:', err.message);
+        secretSauce.setStatus('Error: ' + (err.message || 'Failed to start capture'));
     }
 }
 
@@ -560,7 +594,14 @@ async function captureManualScreenshot(imageQuality = null) {
     const quality = imageQuality || currentImageQuality;
 
     if (!mediaStream) {
-        console.error('No media stream available');
+        console.error('No media stream available for screenshot capture');
+        secretSauce.setStatus('Error: Screen capture not available. Restart session.');
+        return;
+    }
+
+    if (mediaStream.getVideoTracks().length === 0 || mediaStream.getVideoTracks()[0].readyState === 'ended') {
+        console.error('Video track ended or missing');
+        secretSauce.setStatus('Error: Screen capture stopped. Restart session.');
         return;
     }
 
@@ -741,7 +782,7 @@ ipcRenderer.on('save-session-context', async (event, data) => {
     try {
         await storage.saveSession(data.sessionId, {
             profile: data.profile,
-            customPrompt: data.customPrompt
+            customPrompt: data.customPrompt,
         });
         console.log('Session context saved:', data.sessionId, 'profile:', data.profile);
     } catch (error) {
@@ -755,7 +796,7 @@ ipcRenderer.on('save-screen-analysis', async (event, data) => {
         await storage.saveSession(data.sessionId, {
             screenAnalysisHistory: data.fullHistory,
             profile: data.profile,
-            customPrompt: data.customPrompt
+            customPrompt: data.customPrompt,
         });
         console.log('Screen analysis saved:', data.sessionId);
     } catch (error) {
@@ -790,75 +831,129 @@ const theme = {
     themes: {
         dark: {
             background: '#101010',
-            text: '#e0e0e0', textSecondary: '#a0a0a0', textMuted: '#6b6b6b',
-            border: '#2a2a2a', accent: '#ffffff',
-            btnPrimaryBg: '#ffffff', btnPrimaryText: '#000000', btnPrimaryHover: '#e0e0e0',
-            tooltipBg: '#1a1a1a', tooltipText: '#ffffff',
-            keyBg: 'rgba(255,255,255,0.1)'
+            text: '#e0e0e0',
+            textSecondary: '#a0a0a0',
+            textMuted: '#6b6b6b',
+            border: '#2a2a2a',
+            accent: '#ffffff',
+            btnPrimaryBg: '#ffffff',
+            btnPrimaryText: '#000000',
+            btnPrimaryHover: '#e0e0e0',
+            tooltipBg: '#1a1a1a',
+            tooltipText: '#ffffff',
+            keyBg: 'rgba(255,255,255,0.1)',
         },
         light: {
             background: '#ffffff',
-            text: '#1a1a1a', textSecondary: '#555555', textMuted: '#888888',
-            border: '#e0e0e0', accent: '#000000',
-            btnPrimaryBg: '#1a1a1a', btnPrimaryText: '#ffffff', btnPrimaryHover: '#333333',
-            tooltipBg: '#1a1a1a', tooltipText: '#ffffff',
-            keyBg: 'rgba(0,0,0,0.1)'
+            text: '#1a1a1a',
+            textSecondary: '#555555',
+            textMuted: '#888888',
+            border: '#e0e0e0',
+            accent: '#000000',
+            btnPrimaryBg: '#1a1a1a',
+            btnPrimaryText: '#ffffff',
+            btnPrimaryHover: '#333333',
+            tooltipBg: '#1a1a1a',
+            tooltipText: '#ffffff',
+            keyBg: 'rgba(0,0,0,0.1)',
         },
         midnight: {
             background: '#0d1117',
-            text: '#c9d1d9', textSecondary: '#8b949e', textMuted: '#6e7681',
-            border: '#30363d', accent: '#58a6ff',
-            btnPrimaryBg: '#58a6ff', btnPrimaryText: '#0d1117', btnPrimaryHover: '#79b8ff',
-            tooltipBg: '#161b22', tooltipText: '#c9d1d9',
-            keyBg: 'rgba(88,166,255,0.15)'
+            text: '#c9d1d9',
+            textSecondary: '#8b949e',
+            textMuted: '#6e7681',
+            border: '#30363d',
+            accent: '#58a6ff',
+            btnPrimaryBg: '#58a6ff',
+            btnPrimaryText: '#0d1117',
+            btnPrimaryHover: '#79b8ff',
+            tooltipBg: '#161b22',
+            tooltipText: '#c9d1d9',
+            keyBg: 'rgba(88,166,255,0.15)',
         },
         sepia: {
             background: '#f4ecd8',
-            text: '#5c4b37', textSecondary: '#7a6a56', textMuted: '#998875',
-            border: '#d4c8b0', accent: '#8b4513',
-            btnPrimaryBg: '#5c4b37', btnPrimaryText: '#f4ecd8', btnPrimaryHover: '#7a6a56',
-            tooltipBg: '#5c4b37', tooltipText: '#f4ecd8',
-            keyBg: 'rgba(92,75,55,0.15)'
+            text: '#5c4b37',
+            textSecondary: '#7a6a56',
+            textMuted: '#998875',
+            border: '#d4c8b0',
+            accent: '#8b4513',
+            btnPrimaryBg: '#5c4b37',
+            btnPrimaryText: '#f4ecd8',
+            btnPrimaryHover: '#7a6a56',
+            tooltipBg: '#5c4b37',
+            tooltipText: '#f4ecd8',
+            keyBg: 'rgba(92,75,55,0.15)',
         },
         catppuccin: {
             background: '#1e1e2e',
-            text: '#cdd6f4', textSecondary: '#a6adc8', textMuted: '#585b70',
-            border: '#313244', accent: '#cba6f7',
-            btnPrimaryBg: '#cba6f7', btnPrimaryText: '#1e1e2e', btnPrimaryHover: '#b4befe',
-            tooltipBg: '#313244', tooltipText: '#cdd6f4',
-            keyBg: 'rgba(203,166,247,0.12)'
+            text: '#cdd6f4',
+            textSecondary: '#a6adc8',
+            textMuted: '#585b70',
+            border: '#313244',
+            accent: '#cba6f7',
+            btnPrimaryBg: '#cba6f7',
+            btnPrimaryText: '#1e1e2e',
+            btnPrimaryHover: '#b4befe',
+            tooltipBg: '#313244',
+            tooltipText: '#cdd6f4',
+            keyBg: 'rgba(203,166,247,0.12)',
         },
         gruvbox: {
             background: '#1d2021',
-            text: '#ebdbb2', textSecondary: '#a89984', textMuted: '#665c54',
-            border: '#3c3836', accent: '#fe8019',
-            btnPrimaryBg: '#fe8019', btnPrimaryText: '#1d2021', btnPrimaryHover: '#fabd2f',
-            tooltipBg: '#3c3836', tooltipText: '#ebdbb2',
-            keyBg: 'rgba(254,128,25,0.12)'
+            text: '#ebdbb2',
+            textSecondary: '#a89984',
+            textMuted: '#665c54',
+            border: '#3c3836',
+            accent: '#fe8019',
+            btnPrimaryBg: '#fe8019',
+            btnPrimaryText: '#1d2021',
+            btnPrimaryHover: '#fabd2f',
+            tooltipBg: '#3c3836',
+            tooltipText: '#ebdbb2',
+            keyBg: 'rgba(254,128,25,0.12)',
         },
         rosepine: {
             background: '#191724',
-            text: '#e0def4', textSecondary: '#908caa', textMuted: '#6e6a86',
-            border: '#26233a', accent: '#ebbcba',
-            btnPrimaryBg: '#ebbcba', btnPrimaryText: '#191724', btnPrimaryHover: '#f6c177',
-            tooltipBg: '#26233a', tooltipText: '#e0def4',
-            keyBg: 'rgba(235,188,186,0.12)'
+            text: '#e0def4',
+            textSecondary: '#908caa',
+            textMuted: '#6e6a86',
+            border: '#26233a',
+            accent: '#ebbcba',
+            btnPrimaryBg: '#ebbcba',
+            btnPrimaryText: '#191724',
+            btnPrimaryHover: '#f6c177',
+            tooltipBg: '#26233a',
+            tooltipText: '#e0def4',
+            keyBg: 'rgba(235,188,186,0.12)',
         },
         solarized: {
             background: '#002b36',
-            text: '#93a1a1', textSecondary: '#839496', textMuted: '#586e75',
-            border: '#073642', accent: '#2aa198',
-            btnPrimaryBg: '#2aa198', btnPrimaryText: '#002b36', btnPrimaryHover: '#268bd2',
-            tooltipBg: '#073642', tooltipText: '#93a1a1',
-            keyBg: 'rgba(42,161,152,0.12)'
+            text: '#93a1a1',
+            textSecondary: '#839496',
+            textMuted: '#586e75',
+            border: '#073642',
+            accent: '#2aa198',
+            btnPrimaryBg: '#2aa198',
+            btnPrimaryText: '#002b36',
+            btnPrimaryHover: '#268bd2',
+            tooltipBg: '#073642',
+            tooltipText: '#93a1a1',
+            keyBg: 'rgba(42,161,152,0.12)',
         },
         tokyonight: {
             background: '#1a1b26',
-            text: '#c0caf5', textSecondary: '#9aa5ce', textMuted: '#565f89',
-            border: '#292e42', accent: '#7aa2f7',
-            btnPrimaryBg: '#7aa2f7', btnPrimaryText: '#1a1b26', btnPrimaryHover: '#bb9af7',
-            tooltipBg: '#292e42', tooltipText: '#c0caf5',
-            keyBg: 'rgba(122,162,247,0.12)'
+            text: '#c0caf5',
+            textSecondary: '#9aa5ce',
+            textMuted: '#565f89',
+            border: '#292e42',
+            accent: '#7aa2f7',
+            btnPrimaryBg: '#7aa2f7',
+            btnPrimaryText: '#1a1b26',
+            btnPrimaryHover: '#bb9af7',
+            tooltipBg: '#292e42',
+            tooltipText: '#c0caf5',
+            keyBg: 'rgba(122,162,247,0.12)',
         },
     },
 
@@ -878,29 +973,31 @@ const theme = {
             gruvbox: 'Gruvbox Dark',
             rosepine: 'Ros\u00e9 Pine',
             solarized: 'Solarized Dark',
-            tokyonight: 'Tokyo Night'
+            tokyonight: 'Tokyo Night',
         };
         return Object.keys(this.themes).map(key => ({
             value: key,
             name: names[key] || key,
-            colors: this.themes[key]
+            colors: this.themes[key],
         }));
     },
 
     hexToRgb(hex) {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16)
-        } : { r: 30, g: 30, b: 30 };
+        return result
+            ? {
+                  r: parseInt(result[1], 16),
+                  g: parseInt(result[2], 16),
+                  b: parseInt(result[3], 16),
+              }
+            : { r: 30, g: 30, b: 30 };
     },
 
     lightenColor(rgb, amount) {
         return {
             r: Math.min(255, rgb.r + amount),
             g: Math.min(255, rgb.g + amount),
-            b: Math.min(255, rgb.b + amount)
+            b: Math.min(255, rgb.b + amount),
         };
     },
 
@@ -908,7 +1005,7 @@ const theme = {
         return {
             r: Math.max(0, rgb.r - amount),
             g: Math.max(0, rgb.g - amount),
-            b: Math.max(0, rgb.b - amount)
+            b: Math.max(0, rgb.b - amount),
         };
     },
 
@@ -1004,7 +1101,7 @@ const theme = {
     async save(themeName) {
         await storage.updatePreference('theme', themeName);
         this.apply(themeName);
-    }
+    },
 };
 
 // Consolidated secretSauce object - all functions in one place

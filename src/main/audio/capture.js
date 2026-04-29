@@ -6,7 +6,7 @@ let systemAudioProc = null;
 
 function killExistingSystemAudioDump() {
     return new Promise(resolve => {
-        console.log('Checking for existing SystemAudioDump processes...');
+        logger.info('Checking for existing SystemAudioDump processes...');
 
         // Kill any existing SystemAudioDump processes
         const killProc = spawn('pkill', ['-f', 'SystemAudioDump'], {
@@ -15,15 +15,15 @@ function killExistingSystemAudioDump() {
 
         killProc.on('close', code => {
             if (code === 0) {
-                console.log('Killed existing SystemAudioDump processes');
+                logger.info('Killed existing SystemAudioDump processes');
             } else {
-                console.log('No existing SystemAudioDump processes found');
+                logger.info('No existing SystemAudioDump processes found');
             }
             resolve();
         });
 
         killProc.on('error', err => {
-            console.log('Error checking for existing processes (this is normal):', err.message);
+            logger.info('Error checking for existing processes (this is normal):', err.message);
             resolve();
         });
 
@@ -53,7 +53,7 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
     // Kill any existing SystemAudioDump processes first
     await killExistingSystemAudioDump();
 
-    console.log('Starting macOS audio capture with SystemAudioDump...');
+    logger.info('Starting macOS audio capture with SystemAudioDump...');
 
     const { app } = require('electron');
     const path = require('path');
@@ -65,7 +65,7 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
         systemAudioPath = path.join(__dirname, '../../assets/bin', 'SystemAudioDump');
     }
 
-    console.log('SystemAudioDump path:', systemAudioPath);
+    logger.info('SystemAudioDump path:', systemAudioPath);
 
     const spawnOptions = {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -77,11 +77,11 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
     systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
 
     if (!systemAudioProc.pid) {
-        console.error('Failed to start SystemAudioDump');
+        logger.error('Failed to start SystemAudioDump');
         return false;
     }
 
-    console.log('SystemAudioDump started with PID:', systemAudioProc.pid);
+    logger.info('SystemAudioDump started with PID:', systemAudioProc.pid);
 
     const CHUNK_DURATION = 0.1;
     const SAMPLE_RATE = 24000;
@@ -110,7 +110,7 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
             }
 
             if (process.env.DEBUG_AUDIO) {
-                console.log(`Processed audio chunk: ${chunk.length} bytes`);
+                logger.info(`Processed audio chunk: ${chunk.length} bytes`);
                 saveDebugAudio(monoChunk, 'system_audio');
             }
         }
@@ -122,16 +122,16 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
     });
 
     systemAudioProc.stderr.on('data', data => {
-        console.error('SystemAudioDump stderr:', data.toString());
+        logger.error('SystemAudioDump stderr:', data.toString());
     });
 
     systemAudioProc.on('close', code => {
-        console.log('SystemAudioDump process closed with code:', code);
+        logger.info('SystemAudioDump process closed with code:', code);
         systemAudioProc = null;
     });
 
     systemAudioProc.on('error', err => {
-        console.error('SystemAudioDump process error:', err);
+        logger.error('SystemAudioDump process error:', err);
         systemAudioProc = null;
     });
 
@@ -140,7 +140,7 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
 
 function stopMacOSAudioCapture() {
     if (systemAudioProc) {
-        console.log('Stopping SystemAudioDump...');
+        logger.info('Stopping SystemAudioDump...');
         systemAudioProc.kill('SIGTERM');
         systemAudioProc = null;
     }

@@ -1,5 +1,6 @@
 const { GoogleGenAI, Modality } = require('@google/genai');
 const { BrowserWindow, ipcMain } = require('electron');
+const { logger, createSpinner } = require('../utils/logger');
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audio/utils');
 const { getSystemPrompt } = require('./prompts');
@@ -81,7 +82,7 @@ function initializeNewSession(profile = null, customPrompt = null) {
     groqConversationHistory = [];
     currentProfile = profile;
     currentCustomPrompt = customPrompt;
-    console.log('New conversation session started:', currentSessionId, 'profile:', profile);
+    logger.info('New conversation session started:', currentSessionId, 'profile:', profile);
 
     // Save initial session with profile context
     if (profile) {
@@ -105,7 +106,7 @@ function saveConversationTurn(transcription, aiResponse) {
     };
 
     conversationHistory.push(conversationTurn);
-    console.log('Saved conversation turn:', conversationTurn);
+    logger.info('Saved conversation turn:', conversationTurn);
 
     // Send to renderer to save in IndexedDB
     sendToRenderer('save-conversation-turn', {
@@ -128,7 +129,7 @@ function saveScreenAnalysis(prompt, response, model) {
     };
 
     screenAnalysisHistory.push(analysisEntry);
-    console.log('Saved screen analysis:', analysisEntry);
+    logger.info('Saved screen analysis:', analysisEntry);
 
     // Send to renderer to save
     sendToRenderer('save-screen-analysis', {
@@ -152,13 +153,13 @@ async function getEnabledTools() {
 
     // Check if Google Search is enabled (default: true)
     const googleSearchEnabled = await getStoredSetting('googleSearchEnabled', 'true');
-    console.log('Google Search enabled:', googleSearchEnabled);
+    logger.info('Google Search enabled:', googleSearchEnabled);
 
     if (googleSearchEnabled === 'true') {
         tools.push({ googleSearch: {} });
-        console.log('Added Google Search tool');
+        logger.info('Added Google Search tool');
     } else {
-        console.log('Google Search tool disabled');
+        logger.info('Google Search tool disabled');
     }
 
     return tools;
@@ -176,14 +177,14 @@ async function getStoredSetting(key, defaultValue) {
                 (function() {
                     try {
                         if (typeof localStorage === 'undefined') {
-                            console.log('localStorage not available yet for ${key}');
+                            logger.info('localStorage not available yet for ${key}');
                             return '${defaultValue}';
                         }
                         const stored = localStorage.getItem('${key}');
-                        console.log('Retrieved setting ${key}:', stored);
+                        logger.info('Retrieved setting ${key}:', stored);
                         return stored || '${defaultValue}';
                     } catch (e) {
-                        console.error('Error accessing localStorage for ${key}:', e);
+                        logger.error('Error accessing localStorage for ${key}:', e);
                         return '${defaultValue}';
                     }
                 })()
@@ -191,9 +192,9 @@ async function getStoredSetting(key, defaultValue) {
             return value;
         }
     } catch (error) {
-        console.error('Error getting stored setting for', key, ':', error.message);
+        logger.error('Error getting stored setting for', key, ':', error.message);
     }
-    console.log('Using default value for', key, ':', defaultValue);
+    logger.info('Using default value for', key, ':', defaultValue);
     return defaultValue;
 }
 
@@ -226,23 +227,23 @@ function stripThinkingTags(text) {
 async function sendToGroq(transcription) {
     const groqApiKey = getGroqApiKey();
     if (!groqApiKey) {
-        console.log('No Groq API key configured, skipping Groq response');
+        logger.info('No Groq API key configured, skipping Groq response');
         return;
     }
 
     if (!transcription || transcription.trim() === '') {
-        console.log('Empty transcription, skipping Groq');
+        logger.info('Empty transcription, skipping Groq');
         return;
     }
 
     const modelToUse = getModelForToday();
     if (!modelToUse) {
-        console.log('All Groq daily limits exhausted');
+        logger.info('All Groq daily limits exhausted');
         sendToRenderer('update-status', 'Groq limits reached for today');
         return;
     }
 
-    console.log(`Sending to Groq (${modelToUse}):`, transcription.substring(0, 100) + '...');
+    logger.info(`Sending to Groq (${modelToUse}):`, transcription.substring(0, 100) + '...');
 
     groqConversationHistory.push({
         role: 'user',
@@ -271,7 +272,7 @@ async function sendToGroq(transcription) {
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('Groq API error:', response.status, errorText);
+            logger.error('Groq API error:', response.status, errorText);
             sendToRenderer('update-status', `Groq error: ${response.status}`);
             return;
         }
@@ -330,10 +331,10 @@ async function sendToGroq(transcription) {
             saveConversationTurn(transcription, cleanedResponse);
         }
 
-        console.log(`Groq response completed (${modelToUse})`);
+        logger.info(`Groq response completed (${modelToUse})`);
         sendToRenderer('update-status', 'Listening...');
     } catch (error) {
-        console.error('Error calling Groq API:', error);
+        logger.error('Error calling Groq API:', error);
         sendToRenderer('update-status', 'Groq error: ' + error.message);
     }
 }
@@ -341,16 +342,16 @@ async function sendToGroq(transcription) {
 async function sendToGemma(transcription) {
     const apiKey = getApiKey();
     if (!apiKey) {
-        console.log('No Gemini API key configured');
+        logger.info('No Gemini API key configured');
         return;
     }
 
     if (!transcription || transcription.trim() === '') {
-        console.log('Empty transcription, skipping Gemma');
+        logger.info('Empty transcription, skipping Gemma');
         return;
     }
 
-    console.log('Sending to Gemma:', transcription.substring(0, 100) + '...');
+    logger.info('Sending to Gemma:', transcription.substring(0, 100) + '...');
 
     groqConversationHistory.push({
         role: 'user',
@@ -411,17 +412,17 @@ async function sendToGemma(transcription) {
             saveConversationTurn(transcription, fullText);
         }
 
-        console.log('Gemma response completed');
+        logger.info('Gemma response completed');
         sendToRenderer('update-status', 'Listening...');
     } catch (error) {
-        console.error('Error calling Gemma API:', error);
+        logger.error('Error calling Gemma API:', error);
         sendToRenderer('update-status', 'Gemma error: ' + error.message);
     }
 }
 
 async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'interview', language = 'en-US', isReconnect = false) {
     if (isInitializingSession) {
-        console.log('Session initialization already in progress');
+        logger.info('Session initialization already in progress');
         return false;
     }
 
@@ -462,7 +463,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     sendToRenderer('update-status', 'Live session connected');
                 },
                 onmessage: function (message) {
-                    console.log('----------------', message);
+                    logger.info('----------------', message);
 
                     // Handle input transcription (what was spoken)
                     if (message.serverContent?.inputTranscription?.results) {
@@ -494,11 +495,11 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
                 },
                 onerror: function (e) {
-                    console.log('Session error:', e.message);
+                    logger.info('Session error:', e.message);
                     sendToRenderer('update-status', 'Error: ' + e.message);
                 },
                 onclose: function (e) {
-                    console.log('Session closed:', e.reason);
+                    logger.info('Session closed:', e.reason);
 
                     // Don't reconnect if user intentionally closed
                     if (isUserClosing) {
@@ -540,7 +541,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         }
         return session;
     } catch (error) {
-        console.error('Failed to initialize Gemini session:', error);
+        logger.error('Failed to initialize Gemini session:', error);
         isInitializingSession = false;
         if (!isReconnect) {
             sendToRenderer('session-initializing', false);
@@ -551,7 +552,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
 async function attemptReconnect() {
     reconnectAttempts++;
-    console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+    logger.info(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
 
     // Clear stale buffers
     messageBuffer = '';
@@ -579,21 +580,21 @@ async function attemptReconnect() {
             const contextMessage = buildContextMessage();
             if (contextMessage) {
                 try {
-                    console.log('Restoring conversation context...');
+                    logger.info('Restoring conversation context...');
                     await session.sendRealtimeInput({ text: contextMessage });
                 } catch (contextError) {
-                    console.error('Failed to restore context:', contextError);
+                    logger.error('Failed to restore context:', contextError);
                     // Continue without context - better than failing
                 }
             }
 
             // Don't reset reconnectAttempts here - let it reset on next fresh session
             sendToRenderer('update-status', 'Reconnected! Listening...');
-            console.log('Session reconnected successfully');
+            logger.info('Session reconnected successfully');
             return true;
         }
     } catch (error) {
-        console.error(`Reconnection attempt ${reconnectAttempts} failed:`, error);
+        logger.error(`Reconnection attempt ${reconnectAttempts} failed:`, error);
     }
 
     // If we still have attempts left, try again
@@ -602,7 +603,7 @@ async function attemptReconnect() {
     }
 
     // Max attempts reached - notify frontend
-    console.log('Max reconnection attempts reached');
+    logger.info('Max reconnection attempts reached');
     sendToRenderer('reconnect-failed', {
         message: 'Tried 3 times to reconnect. Must be upstream/network issues. Try restarting or download updated app from site.',
     });
@@ -612,7 +613,7 @@ async function attemptReconnect() {
 
 function killExistingSystemAudioDump() {
     return new Promise(resolve => {
-        console.log('Checking for existing SystemAudioDump processes...');
+        logger.info('Checking for existing SystemAudioDump processes...');
 
         // Kill any existing SystemAudioDump processes
         const killProc = spawn('pkill', ['-f', 'SystemAudioDump'], {
@@ -621,15 +622,15 @@ function killExistingSystemAudioDump() {
 
         killProc.on('close', code => {
             if (code === 0) {
-                console.log('Killed existing SystemAudioDump processes');
+                logger.info('Killed existing SystemAudioDump processes');
             } else {
-                console.log('No existing SystemAudioDump processes found');
+                logger.info('No existing SystemAudioDump processes found');
             }
             resolve();
         });
 
         killProc.on('error', err => {
-            console.log('Error checking for existing processes (this is normal):', err.message);
+            logger.info('Error checking for existing processes (this is normal):', err.message);
             resolve();
         });
 
@@ -647,7 +648,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     // Kill any existing SystemAudioDump processes first
     await killExistingSystemAudioDump();
 
-    console.log('Starting macOS audio capture with SystemAudioDump...');
+    logger.info('Starting macOS audio capture with SystemAudioDump...');
 
     const { app } = require('electron');
     const path = require('path');
@@ -659,7 +660,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
         systemAudioPath = path.join(__dirname, '../../assets/bin', 'SystemAudioDump');
     }
 
-    console.log('SystemAudioDump path:', systemAudioPath);
+    logger.info('SystemAudioDump path:', systemAudioPath);
 
     const spawnOptions = {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -671,11 +672,11 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
 
     if (!systemAudioProc.pid) {
-        console.error('Failed to start SystemAudioDump');
+        logger.error('Failed to start SystemAudioDump');
         return false;
     }
 
-    console.log('SystemAudioDump started with PID:', systemAudioProc.pid);
+    logger.info('SystemAudioDump started with PID:', systemAudioProc.pid);
 
     const CHUNK_DURATION = 0.1;
     const SAMPLE_RATE = 24000;
@@ -704,7 +705,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
             }
 
             if (process.env.DEBUG_AUDIO) {
-                console.log(`Processed audio chunk: ${chunk.length} bytes`);
+                logger.info(`Processed audio chunk: ${chunk.length} bytes`);
                 saveDebugAudio(monoChunk, 'system_audio');
             }
         }
@@ -716,16 +717,16 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     });
 
     systemAudioProc.stderr.on('data', data => {
-        console.error('SystemAudioDump stderr:', data.toString());
+        logger.error('SystemAudioDump stderr:', data.toString());
     });
 
     systemAudioProc.on('close', code => {
-        console.log('SystemAudioDump process closed with code:', code);
+        logger.info('SystemAudioDump process closed with code:', code);
         systemAudioProc = null;
     });
 
     systemAudioProc.on('error', err => {
-        console.error('SystemAudioDump process error:', err);
+        logger.error('SystemAudioDump process error:', err);
         systemAudioProc = null;
     });
 
@@ -746,7 +747,7 @@ function convertStereoToMono(stereoBuffer) {
 
 function stopMacOSAudioCapture() {
     if (systemAudioProc) {
-        console.log('Stopping SystemAudioDump...');
+        logger.info('Stopping SystemAudioDump...');
         systemAudioProc.kill('SIGTERM');
         systemAudioProc = null;
     }
@@ -764,7 +765,7 @@ async function sendAudioToGemini(base64Data, geminiSessionRef) {
             },
         });
     } catch (error) {
-        console.error('Error sending audio to Gemini:', error);
+        logger.error('Error sending audio to Gemini:', error);
     }
 }
 
@@ -777,6 +778,7 @@ async function sendImageToGeminiHttp(base64Data, prompt) {
         return { success: false, error: 'No API key configured' };
     }
 
+    let spinner;
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
@@ -790,11 +792,13 @@ async function sendImageToGeminiHttp(base64Data, prompt) {
             { text: prompt },
         ];
 
-        console.log(`Sending image to ${model} (streaming)...`);
+        spinner = createSpinner(`Sending image to ${model} (streaming)...`).start();
         const response = await ai.models.generateContentStream({
             model: model,
             contents: contents,
         });
+
+        spinner.succeed(`Connected to ${model} stream`);
 
         // Increment count after successful call
         incrementLimitCount(model);
@@ -812,14 +816,17 @@ async function sendImageToGeminiHttp(base64Data, prompt) {
             }
         }
 
-        console.log(`Image response completed from ${model}`);
+        logger.info(`Image response completed from ${model}`);
 
         // Save screen analysis to history
         saveScreenAnalysis(prompt, fullText, model);
 
         return { success: true, text: fullText, model: model };
     } catch (error) {
-        console.error('Error sending image to Gemini HTTP:', error);
+        if (spinner) {
+            spinner.fail(`Failed to send image to ${model}`);
+        }
+        logger.error('Error sending image to Gemini HTTP:', error.message || error);
         return { success: false, error: error.message };
     }
 }
@@ -840,7 +847,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             sendToRenderer('session-initializing', false);
             return true;
         } catch (err) {
-            console.error('[Cloud] Init error:', err);
+            logger.error('[Cloud] Init error:', err);
             currentProviderMode = 'byok';
             sendToRenderer('session-initializing', false);
             return false;
@@ -873,7 +880,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 sendCloudAudio(pcmBuffer);
                 return { success: true };
             } catch (error) {
-                console.error('Error sending cloud audio:', error);
+                logger.error('Error sending cloud audio:', error);
                 return { success: false, error: error.message };
             }
         }
@@ -883,7 +890,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 getLocalAi().processLocalAudio(pcmBuffer);
                 return { success: true };
             } catch (error) {
-                console.error('Error sending local audio:', error);
+                logger.error('Error sending local audio:', error);
                 return { success: false, error: error.message };
             }
         }
@@ -895,7 +902,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             });
             return { success: true };
         } catch (error) {
-            console.error('Error sending system audio:', error);
+            logger.error('Error sending system audio:', error);
             return { success: false, error: error.message };
         }
     });
@@ -908,7 +915,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 sendCloudAudio(pcmBuffer);
                 return { success: true };
             } catch (error) {
-                console.error('Error sending cloud mic audio:', error);
+                logger.error('Error sending cloud mic audio:', error);
                 return { success: false, error: error.message };
             }
         }
@@ -918,7 +925,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 getLocalAi().processLocalAudio(pcmBuffer);
                 return { success: true };
             } catch (error) {
-                console.error('Error sending local mic audio:', error);
+                logger.error('Error sending local mic audio:', error);
                 return { success: false, error: error.message };
             }
         }
@@ -930,7 +937,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             });
             return { success: true };
         } catch (error) {
-            console.error('Error sending mic audio:', error);
+            logger.error('Error sending mic audio:', error);
             return { success: false, error: error.message };
         }
     });
@@ -938,14 +945,14 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     ipcMain.handle('send-image-content', async (event, { data, prompt }) => {
         try {
             if (!data || typeof data !== 'string') {
-                console.error('Invalid image data received');
+                logger.error('Invalid image data received');
                 return { success: false, error: 'Invalid image data' };
             }
 
             const buffer = Buffer.from(data, 'base64');
 
             if (buffer.length < 1000) {
-                console.error(`Image buffer too small: ${buffer.length} bytes`);
+                logger.error(`Image buffer too small: ${buffer.length} bytes`);
                 return { success: false, error: 'Image buffer too small' };
             }
 
@@ -968,7 +975,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             const result = await sendImageToGeminiHttp(data, prompt);
             return result;
         } catch (error) {
-            console.error('Error sending image:', error);
+            logger.error('Error sending image:', error);
             return { success: false, error: error.message };
         }
     });
@@ -980,21 +987,21 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
         if (currentProviderMode === 'cloud') {
             try {
-                console.log('Sending text to cloud:', text);
+                logger.info('Sending text to cloud:', text);
                 sendCloudText(text.trim());
                 return { success: true };
             } catch (error) {
-                console.error('Error sending cloud text:', error);
+                logger.error('Error sending cloud text:', error);
                 return { success: false, error: error.message };
             }
         }
 
         if (currentProviderMode === 'local') {
             try {
-                console.log('Sending text to local Ollama:', text);
+                logger.info('Sending text to local Ollama:', text);
                 return await getLocalAi().sendLocalText(text.trim());
             } catch (error) {
-                console.error('Error sending local text:', error);
+                logger.error('Error sending local text:', error);
                 return { success: false, error: error.message };
             }
         }
@@ -1002,7 +1009,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
 
         try {
-            console.log('Sending text message:', text);
+            logger.info('Sending text message:', text);
 
             if (hasGroqKey()) {
                 sendToGroq(text.trim());
@@ -1013,7 +1020,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });
             return { success: true };
         } catch (error) {
-            console.error('Error sending text:', error);
+            logger.error('Error sending text:', error);
             return { success: false, error: error.message };
         }
     });
@@ -1030,7 +1037,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             const success = await startMacOSAudioCapture(geminiSessionRef);
             return { success };
         } catch (error) {
-            console.error('Error starting macOS audio capture:', error);
+            logger.error('Error starting macOS audio capture:', error);
             return { success: false, error: error.message };
         }
     });
@@ -1040,7 +1047,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             stopMacOSAudioCapture();
             return { success: true };
         } catch (error) {
-            console.error('Error stopping macOS audio capture:', error);
+            logger.error('Error stopping macOS audio capture:', error);
             return { success: false, error: error.message };
         }
     });
@@ -1073,7 +1080,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
             return { success: true };
         } catch (error) {
-            console.error('Error closing session:', error);
+            logger.error('Error closing session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -1083,7 +1090,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             return { success: true, data: getCurrentSessionData() };
         } catch (error) {
-            console.error('Error getting current session:', error);
+            logger.error('Error getting current session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -1093,19 +1100,19 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             initializeNewSession();
             return { success: true, sessionId: currentSessionId };
         } catch (error) {
-            console.error('Error starting new session:', error);
+            logger.error('Error starting new session:', error);
             return { success: false, error: error.message };
         }
     });
 
     ipcMain.handle('update-google-search-setting', async (event, enabled) => {
         try {
-            console.log('Google Search setting updated to:', enabled);
+            logger.info('Google Search setting updated to:', enabled);
             // The setting is already saved in localStorage by the renderer
             // This is just for logging/confirmation
             return { success: true };
         } catch (error) {
-            console.error('Error updating Google Search setting:', error);
+            logger.error('Error updating Google Search setting:', error);
             return { success: false, error: error.message };
         }
     });
