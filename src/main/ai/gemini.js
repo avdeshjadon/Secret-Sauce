@@ -162,8 +162,6 @@ async function generateSessionSummary() {
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
         const historyText = conversationHistory.map(turn => `[Interviewer]: ${turn.transcription}\n[Candidate]: ${turn.ai_response}`).join('\n\n');
 
         const prompt = `You are a professional meeting assistant. Based on the following conversation history from a ${currentProfile || 'session'}, provide a concise, high-level summary.
@@ -178,7 +176,10 @@ async function generateSessionSummary() {
         Conversation History:
         ${historyText}`;
 
-        const result = await model.generateContent(prompt);
+        const result = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        });
         const summary = result.response.text();
 
         if (summary) {

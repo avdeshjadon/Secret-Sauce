@@ -1,5 +1,23 @@
 // renderer.js
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, webFrame } = require('electron');
+
+// Force zoom level to 100% and prevent changes
+webFrame.setVisualZoomLevelLimits(1, 1);
+webFrame.setZoomFactor(1);
+
+// Block pinch-to-zoom and ctrl/cmd + wheel zoom
+window.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Block keyboard zoom shortcuts as a secondary measure
+window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '-' || e.key === '0' || e.key === '+')) {
+        e.preventDefault();
+    }
+});
 
 let mediaStream = null;
 let screenshotInterval = null;

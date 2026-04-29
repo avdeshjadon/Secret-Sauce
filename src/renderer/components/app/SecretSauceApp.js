@@ -5,7 +5,9 @@ import { HelpView } from '../views/HelpView.js';
 import { HistoryView } from '../views/HistoryView.js';
 import { AssistantView } from '../views/AssistantView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
-import { AICustomizeView } from '../views/AICustomizeView.js';
+import { TemplatesView } from '../views/TemplatesView.js';
+import { StatsView } from '../views/StatsView.js';
+import { ModelsView } from '../views/ModelsView.js';
 
 export class SecretSauceApp extends LitElement {
     static styles = css`
@@ -134,6 +136,24 @@ export class SecretSauceApp extends LitElement {
             gap: var(--space-xs);
             padding: 0 var(--space-sm);
             -webkit-app-region: no-drag;
+            overflow-y: auto;
+        }
+
+        .nav-divider {
+            height: 1px;
+            background: var(--border);
+            margin: var(--space-sm) var(--space-md);
+            opacity: 0.5;
+        }
+
+        .nav-section-title {
+            font-size: 10px;
+            font-weight: var(--font-weight-bold);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: var(--space-xs) var(--space-md);
+            margin-top: var(--space-xs);
         }
 
         .nav-item {
@@ -171,9 +191,32 @@ export class SecretSauceApp extends LitElement {
             flex-shrink: 0;
         }
 
+        .new-session-btn {
+            margin: 0 var(--space-sm) var(--space-md) var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: var(--font-size-sm);
+            font-weight: var(--font-weight-semibold);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-sm);
+            transition: background var(--transition);
+            -webkit-app-region: no-drag;
+        }
+
+        .new-session-btn:hover {
+            background: var(--accent-hover);
+        }
+
         .sidebar-footer {
             padding: var(--space-sm);
-            margin-top: var(--space-sm);
+            margin-top: auto;
+            border-top: 1px solid var(--border);
             -webkit-app-region: no-drag;
         }
 
@@ -408,8 +451,21 @@ export class SecretSauceApp extends LitElement {
         this._whisperDownloading = false;
         this._localVersion = '';
 
+        this._localVersion = '';
+        this._theme = 'dark';
+
         this._loadFromStorage();
         this._checkForUpdates();
+    }
+
+    async _toggleTheme() {
+        this._theme = this._theme === 'dark' ? 'light' : 'dark';
+        await secretSauce.theme.save(this._theme);
+        const colors = secretSauce.theme.get(this._theme);
+        // We need transparency from prefs
+        const prefs = await secretSauce.storage.getPreferences();
+        secretSauce.theme.applyBackgrounds(colors.background, prefs.backgroundTransparency || 0.8);
+        this.requestUpdate();
     }
 
     async _checkForUpdates() {
@@ -445,6 +501,7 @@ export class SecretSauceApp extends LitElement {
             this.selectedScreenshotInterval = prefs.selectedScreenshotInterval || '5';
             this.selectedImageQuality = prefs.selectedImageQuality || 'medium';
             this.layoutMode = config.layout || 'normal';
+            this._theme = prefs.theme || 'dark';
 
             this._storageLoaded = true;
             this.requestUpdate();
@@ -546,6 +603,10 @@ export class SecretSauceApp extends LitElement {
 
     navigate(view) {
         this.currentView = view;
+        if (window.require) {
+            const { webFrame } = window.require('electron');
+            webFrame.setZoomFactor(1);
+        }
         this.requestUpdate();
     }
 
@@ -740,13 +801,11 @@ export class SecretSauceApp extends LitElement {
                     ></main-view>
                 `;
 
-            case 'ai-customize':
-                return html`
-                    <ai-customize-view
-                        .selectedProfile=${this.selectedProfile}
-                        .onProfileChange=${p => this.handleProfileChange(p)}
-                    ></ai-customize-view>
-                `;
+            case 'templates':
+                return html`<templates-view></templates-view>`;
+
+            case 'stats':
+                return html`<stats-view></stats-view>`;
 
             case 'customize':
                 return html`
@@ -807,17 +866,14 @@ export class SecretSauceApp extends LitElement {
                 </svg>`,
             },
             {
-                id: 'ai-customize',
-                label: 'AI Customization',
+                id: 'stats',
+                label: 'Statistics',
                 icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <path
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M13 3v7h6l-8 11v-7H5z"
-                    />
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                        <path d="M18 20V10" />
+                        <path d="M12 20V4" />
+                        <path d="M6 20v-6" />
+                    </g>
                 </svg>`,
             },
             {
@@ -829,6 +885,18 @@ export class SecretSauceApp extends LitElement {
                             d="M10 20.777a9 9 0 0 1-2.48-.969M14 3.223a9.003 9.003 0 0 1 0 17.554m-9.421-3.684a9 9 0 0 1-1.227-2.592M3.124 10.5c.16-.95.468-1.85.9-2.675l.169-.305m2.714-2.941A9 9 0 0 1 10 3.223"
                         />
                         <path d="M12 8v4l3 3" />
+                    </g>
+                </svg>`,
+            },
+            {
+                id: 'templates',
+                label: 'Templates',
+                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                        <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+                        <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
+                        <path d="M9 15h6" />
+                        <path d="M9 11h6" />
                     </g>
                 </svg>`,
             },
@@ -862,9 +930,30 @@ export class SecretSauceApp extends LitElement {
                 <div class="sidebar-brand">
                     <h1>Secret Sauce</h1>
                 </div>
+
+                <button class="new-session-btn" @click=${() => this.navigate('main')}>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M5 12h14"></path>
+                        <path d="M12 5v14"></path>
+                    </svg>
+                    New Session
+                </button>
+
                 <nav class="sidebar-nav">
-                    ${items.map(
-                        item => html`
+                    ${items.map(item => {
+                        if (item.divider) return html`<div class="nav-divider"></div>`;
+                        if (item.section) return html`<div class="nav-section-title">${item.section}</div>`;
+                        return html`
                             <button
                                 class="nav-item ${this.currentView === item.id ? 'active' : ''}"
                                 @click=${() => this.navigate(item.id)}
@@ -872,8 +961,8 @@ export class SecretSauceApp extends LitElement {
                             >
                                 ${item.icon} ${item.label}
                             </button>
-                        `
-                    )}
+                        `;
+                    })}
                 </nav>
                 <div class="sidebar-footer">
                     ${this._updateAvailable

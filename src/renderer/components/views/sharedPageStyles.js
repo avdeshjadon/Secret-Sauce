@@ -166,9 +166,53 @@ export const unifiedPageStyles = css`
         color: var(--danger);
     }
 
+    .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-md);
+    }
+
+    .grid-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: var(--space-md);
+    }
+
+    .stat-card {
+        padding: var(--space-md);
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-xs);
+    }
+
+    .stat-label {
+        font-size: var(--font-size-xs);
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .stat-value {
+        font-size: var(--font-size-xl);
+        font-weight: var(--font-weight-semibold);
+        color: var(--text-primary);
+    }
+
+    @media (max-width: 820px) {
+        .grid-3 {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
     @media (max-width: 640px) {
         .unified-page {
             padding: var(--space-md);
+        }
+        .grid-2, .grid-3 {
+            grid-template-columns: 1fr;
         }
     }
 `;

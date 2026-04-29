@@ -29,6 +29,7 @@ function createWindow(sendToRenderer, geminiSessionRef) {
             enableBlinkFeatures: 'GetDisplayMedia',
             webSecurity: true,
             allowRunningInsecureContent: false,
+            visualZoomLevel: 1.0,
         },
         backgroundColor: '#00000000',
     });
@@ -98,6 +99,15 @@ function createWindow(sendToRenderer, geminiSessionRef) {
 
     // After window is created, initialize keybinds
     mainWindow.webContents.once('dom-ready', () => {
+        // Disable pinch-to-zoom
+        mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+        mainWindow.webContents.executeJavaScript(`
+            const meta = document.createElement('meta');
+            meta.name = 'viewport';
+            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+            document.head.appendChild(meta);
+        `);
+
         setTimeout(() => {
             const defaultKeybinds = getDefaultKeybinds();
             let keybinds = defaultKeybinds;
@@ -110,6 +120,30 @@ function createWindow(sendToRenderer, geminiSessionRef) {
 
             updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef);
         }, 150);
+    });
+
+    // Block zoom keyboard shortcuts
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown') {
+            const { control, meta, key } = input;
+            const isCommand = process.platform === 'darwin' ? meta : control;
+
+            if (isCommand && (key === '=' || key === '+' || key === '-' || key === '0' || key === '_')) {
+                event.preventDefault();
+            }
+        }
+    });
+
+    // Block mouse wheel zoom
+    mainWindow.webContents.on('mouse-wheel', (event, input) => {
+        const isCommand = process.platform === 'darwin' ? input.meta : input.control;
+        if (isCommand) {
+            event.preventDefault();
+        }
+    });
+
+    mainWindow.webContents.on('zoom-changed', (event, zoomDirection) => {
+        mainWindow.webContents.setZoomFactor(1);
     });
 
     setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef);
