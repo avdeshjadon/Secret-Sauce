@@ -18,6 +18,102 @@ const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.in
 const isMacOS = navigator.userAgent.includes('Mac');
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Minimal HTML sanitizer for markdown output (XSS mitigation) ─────────────
+// Allowlist-based sanitizer (no external deps). Keep this conservative.
+function sanitizeHtmlAllowlist(unsafeHtml) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(unsafeHtml || ''), 'text/html');
+
+    const ALLOWED_TAGS = new Set([
+        'P', 'BR', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I',
+        'CODE', 'PRE', 'BLOCKQUOTE',
+        'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+        'HR',
+        'A',
+        'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
+        'SPAN',
+    ]);
+    const ALLOWED_ATTRS = {
+        A: new Set(['href', 'title', 'target', 'rel']),
+        SPAN: new Set(['class']),
+        CODE: new Set(['class']),
+        PRE: new Set(['class']),
+        TABLE: new Set([]),
+        THEAD: new Set([]),
+        TBODY: new Set([]),
+        TR: new Set([]),
+        TH: new Set([]),
+        TD: new Set([]),
+        P: new Set([]),
+        UL: new Set([]),
+        OL: new Set([]),
+        LI: new Set([]),
+        BLOCKQUOTE: new Set([]),
+        H1: new Set([]),
+        H2: new Set([]),
+        H3: new Set([]),
+        H4: new Set([]),
+        H5: new Set([]),
+        H6: new Set([]),
+        HR: new Set([]),
+        BR: new Set([]),
+        STRONG: new Set([]),
+        B: new Set([]),
+        EM: new Set([]),
+        I: new Set([]),
+    };
+
+    function isSafeUrl(url) {
+        if (!url) return false;
+        try {
+            const u = new URL(url, window.location.origin);
+            return u.protocol === 'http:' || u.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    }
+
+    function cleanNode(node) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const tag = node.tagName;
+            if (tag !== 'BODY' && tag !== 'HTML') {
+                if (!ALLOWED_TAGS.has(tag)) {
+                    // Replace the node with its text content (drop markup)
+                    const text = doc.createTextNode(node.textContent || '');
+                    node.replaceWith(text);
+                    return;
+                }
+
+                // Remove disallowed attributes
+                const allowed = ALLOWED_ATTRS[tag] || new Set();
+                for (const attr of Array.from(node.attributes)) {
+                    if (!allowed.has(attr.name)) {
+                        node.removeAttribute(attr.name);
+                    }
+                }
+
+                if (tag === 'A') {
+                    const href = node.getAttribute('href') || '';
+                    if (!isSafeUrl(href)) {
+                        node.removeAttribute('href');
+                    } else {
+                        node.setAttribute('target', '_blank');
+                        node.setAttribute('rel', 'noopener noreferrer');
+                    }
+                }
+            }
+        }
+
+        // Recurse (copy list because we may mutate)
+        for (const child of Array.from(node.childNodes)) {
+            cleanNode(child);
+        }
+    }
+
+    cleanNode(doc.body);
+    return doc.body.innerHTML;
+}
+
 let mediaStream = null;
 let screenshotInterval = null;
 let audioContext = null;
@@ -30,8 +126,8 @@ let _audioSending = false;
 let _micAudioSending = false;
 
 const SAMPLE_RATE = 24000;
-const AUDIO_CHUNK_DURATION = 0.1; // seconds
-const BUFFER_SIZE = 4096;
+const AUDIO_CHUNK_DURATION = 0.05; // 50ms for lower end-to-end latency
+const BUFFER_SIZE = 2048;
 
 let hiddenVideo = null;
 let offscreenCanvas = null;
@@ -238,7 +334,8 @@ _ipcCleanup.push(
         const modal = document.getElementById('summaryModal');
         const content = document.getElementById('summaryContent');
         if (modal && content) {
-            content.innerHTML = typeof marked !== 'undefined' ? marked.parse(data.summary) : data.summary;
+            const raw = typeof marked !== 'undefined' ? marked.parse(data.summary || '') : String(data.summary || '');
+            content.innerHTML = sanitizeHtmlAllowlist(raw);
             modal.classList.add('visible');
         }
     })
@@ -769,6 +866,25 @@ const secretSauce = {
 };
 
 window.secretSauce = secretSauce;
+
+// Wire up summary close button (removed inline onclick for CSP)
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        const closeBtn = document.getElementById('closeSummaryBtn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                document.getElementById('summaryModal')?.classList.remove('visible');
+            });
+        }
+    });
+} else {
+    const closeBtn = document.getElementById('closeSummaryBtn');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            document.getElementById('summaryModal')?.classList.remove('visible');
+        });
+    }
+}
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => theme.load());

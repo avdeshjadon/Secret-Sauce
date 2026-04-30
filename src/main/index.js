@@ -15,8 +15,14 @@ if (require('electron-squirrel-startup')) {
     process.exit(0);
 }
 
-// Bypass SSL certificate errors (fixes #15: "self signed certificate in certificate chain")
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// SECURITY: Never disable TLS verification in production.
+// If you truly need this for local dev behind a MITM proxy, set:
+//   ALLOW_INSECURE_TLS=1 npm start
+if (process.env.ALLOW_INSECURE_TLS === '1') {
+    const { logger } = require('./utils/logger');
+    logger.warn('[SECURITY] TLS verification is disabled via ALLOW_INSECURE_TLS=1. Do not ship this setting to production.');
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 
 const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { createWindow, updateGlobalShortcuts } = require('./window');
@@ -384,6 +390,32 @@ function setupGeneralIpcHandlers() {
             return { success: true };
         } catch (error) {
             logger.error('Error opening external URL:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('toggle-window-visibility', async () => {
+        try {
+            if (!mainWindow) return { success: false, error: 'No main window' };
+            if (mainWindow.isVisible()) {
+                mainWindow.hide();
+            } else {
+                mainWindow.show();
+            }
+            return { success: true, visible: mainWindow.isVisible() };
+        } catch (error) {
+            logger.error('Error toggling window visibility:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('window-minimize', async () => {
+        try {
+            if (!mainWindow) return { success: false, error: 'No main window' };
+            mainWindow.minimize();
+            return { success: true };
+        } catch (error) {
+            logger.error('Error minimizing window:', error);
             return { success: false, error: error.message };
         }
     });

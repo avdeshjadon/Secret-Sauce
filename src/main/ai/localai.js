@@ -1,12 +1,12 @@
 const { Ollama } = require('ollama');
 const { getSystemPrompt } = require('./prompts');
-const { sendToRenderer, initializeNewSession, saveConversationTurn, state: geminiState } = require('./gemini');
+const { sendToRenderer, initializeNewSession, saveConversationTurn, state: geminiState, handleLocalTranscription, failoverToGeminiTranscription } = require('./gemini');
 const { getPreferences } = require('../storage');
 const { ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { logger } = require('../utils/logger');
+const { logger, streamLogger } = require('../utils/logger');
 
 // ── State ──
 
@@ -19,6 +19,22 @@ let currentSystemPrompt = null;
 let isLocalActive = false;
 let whisperEngine = 'cpp'; // 'cpp' | 'transformers'
 let whisperModelPath = '';
+let cppWhisperUnavailable = false;
+let consecutiveTranscriptionFailures = 0;
+function resolveTransformersWhisperModel(modelName) {
+    const clean = String(modelName || 'tiny.en').trim();
+    if (clean.startsWith('openai/')) return clean;
+    const map = {
+        'tiny.en': 'openai/whisper-tiny.en',
+        'base.en': 'openai/whisper-base.en',
+        'small.en': 'openai/whisper-small.en',
+        'medium.en': 'openai/whisper-medium.en',
+    };
+    return map[clean] || 'openai/whisper-tiny.en';
+}
+function streamSessionId() {
+    return geminiState.sessionId || 'no-session';
+}
 
 // VAD state
 let isSpeaking = false;
@@ -28,10 +44,10 @@ let speechFrameCount = 0;
 
 // VAD configuration
 const VAD_MODES = {
-    NORMAL: { energyThreshold: 0.01, speechFramesRequired: 3, silenceFramesRequired: 30 },
-    LOW_BITRATE: { energyThreshold: 0.008, speechFramesRequired: 4, silenceFramesRequired: 35 },
-    AGGRESSIVE: { energyThreshold: 0.015, speechFramesRequired: 2, silenceFramesRequired: 20 },
-    VERY_AGGRESSIVE: { energyThreshold: 0.02, speechFramesRequired: 2, silenceFramesRequired: 15 },
+    NORMAL: { energyThreshold: 0.01, speechFramesRequired: 2, silenceFramesRequired: 12 },
+    LOW_BITRATE: { energyThreshold: 0.008, speechFramesRequired: 2, silenceFramesRequired: 14 },
+    AGGRESSIVE: { energyThreshold: 0.015, speechFramesRequired: 1, silenceFramesRequired: 8 },
+    VERY_AGGRESSIVE: { energyThreshold: 0.02, speechFramesRequired: 1, silenceFramesRequired: 6 },
 };
 let vadConfig = VAD_MODES.VERY_AGGRESSIVE;
 
@@ -159,7 +175,6 @@ async function loadWhisperPipeline(modelName) {
 
     isWhisperLoading = true;
     logger.info('[LocalAI] Loading Whisper model:', modelName);
-    sendToRenderer('whisper-downloading', true);
     sendToRenderer('update-status', 'Loading Whisper model (first time may take a while)...');
 
     try {
@@ -174,12 +189,10 @@ async function loadWhisperPipeline(modelName) {
             device: 'auto',
         });
         logger.info('[LocalAI] Whisper model loaded successfully');
-        sendToRenderer('whisper-downloading', false);
         isWhisperLoading = false;
         return whisperPipeline;
     } catch (error) {
         logger.error('[LocalAI] Failed to load Whisper model:', error);
-        sendToRenderer('whisper-downloading', false);
         sendToRenderer('update-status', 'Failed to load Whisper model: ' + error.message);
         isWhisperLoading = false;
         return null;
@@ -196,11 +209,19 @@ function pcm16ToFloat32(pcm16Buffer) {
 }
 
 async function transcribeAudio(pcm16kBuffer) {
-    if (whisperEngine === 'cpp') {
-        return await transcribeWithCpp(pcm16kBuffer);
-    } else {
+    if (whisperEngine === 'cpp' && !cppWhisperUnavailable) {
+        const cppResult = await transcribeWithCpp(pcm16kBuffer);
+        if (cppResult) return cppResult;
+        // Auto-fallback to Transformers to keep real-time flow responsive.
+        cppWhisperUnavailable = true;
+        whisperEngine = 'transformers';
+        logger.warn('[LocalAI] whisper.cpp unavailable, switching to Transformers fallback');
+        sendToRenderer('update-status', 'whisper.cpp unavailable; switching to Transformers...');
+        const pipeline = await loadWhisperPipeline(resolveTransformersWhisperModel(getPreferences().whisperModel));
+        if (!pipeline) return null;
         return await transcribeWithTransformers(pcm16kBuffer);
     }
+    return await transcribeWithTransformers(pcm16kBuffer);
 }
 
 async function transcribeWithTransformers(pcm16kBuffer) {
@@ -218,7 +239,7 @@ async function transcribeWithTransformers(pcm16kBuffer) {
         });
 
         const text = result.text?.trim();
-        logger.info('[LocalAI] Transcription (Transformers):', text);
+        logger.info('[LocalAI] Transcription (Transformers)', text ? `(len=${text.length})` : '(empty)');
         return text;
     } catch (error) {
         logger.error('[LocalAI] Transformers transcription error:', error);
@@ -236,9 +257,29 @@ async function transcribeWithCpp(pcm16kBuffer) {
 
     try {
         fs.writeFileSync(tempWav, wavData);
+        // whisper-node uses shelljs internally; ensure node path is resolvable.
+        try {
+            const shelljs = require('shelljs');
+            if (shelljs?.config) {
+                shelljs.config.execPath = process.execPath;
+            }
+        } catch (e) {
+            // Non-fatal; we'll still attempt transcription.
+        }
 
-        // whisper-node usage
-        const whisper = require('whisper-node');
+        // whisper-node has multiple export styles across versions.
+        const whisperModule = require('whisper-node');
+        const whisper =
+            typeof whisperModule === 'function'
+                ? whisperModule
+                : typeof whisperModule?.default === 'function'
+                  ? whisperModule.default
+                  : typeof whisperModule?.whisper === 'function'
+                    ? whisperModule.whisper
+                    : null;
+        if (!whisper) {
+            throw new Error('whisper-node export is not callable');
+        }
         const options = {
             modelPath: whisperModelPath,
             whisperOptions: {
@@ -253,22 +294,19 @@ async function transcribeWithCpp(pcm16kBuffer) {
             },
         };
 
-        const results = await whisper(tempWav, options);
+        const cppTimeoutMs = 2500;
+        const results = await Promise.race([
+            whisper(tempWav, options),
+            new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`whisper.cpp timeout after ${cppTimeoutMs}ms`)), cppTimeoutMs);
+            }),
+        ]);
         
         // Clean up temp file
         try { fs.unlinkSync(tempWav); } catch (e) {}
 
         if (results && results.length > 0) {
             const text = results.map(r => r.speech).join(' ').trim();
-            
-            // Match Gemini Live style and suppress wave
-            geminiState.isUserStreaming = true;
-            console.log(`\x1b[34m[USER] >\x1b[0m ${text}`);
-            
-            if (geminiState.userStreamTimeout) clearTimeout(geminiState.userStreamTimeout);
-            geminiState.userStreamTimeout = setTimeout(() => {
-                geminiState.isUserStreaming = false;
-            }, 1000);
 
             return text;
         }
@@ -285,8 +323,8 @@ async function transcribeWithCpp(pcm16kBuffer) {
 async function handleSpeechEnd(audioData) {
     if (!isLocalActive) return;
 
-    // Minimum audio length check (~0.5 seconds at 16kHz, 16-bit)
-    if (audioData.length < 16000) {
+    // Minimum audio length check (~0.2 seconds at 16kHz, 16-bit)
+    if (audioData.length < 6400) {
         logger.info('[LocalAI] Audio too short, skipping');
         sendToRenderer('update-status', 'Listening...');
         return;
@@ -296,9 +334,15 @@ async function handleSpeechEnd(audioData) {
 
     if (!transcription || transcription.trim() === '' || transcription.trim().length < 2) {
         logger.info('[LocalAI] Empty transcription, skipping');
+        consecutiveTranscriptionFailures++;
+        if (consecutiveTranscriptionFailures >= 2) {
+            await failoverToGeminiTranscription('Local Whisper transcription failed repeatedly');
+            consecutiveTranscriptionFailures = 0;
+        }
         sendToRenderer('update-status', 'Listening...');
         return;
     }
+    consecutiveTranscriptionFailures = 0;
 
     sendToRenderer('update-status', 'Generating response...');
     
@@ -306,9 +350,9 @@ async function handleSpeechEnd(audioData) {
     if (isLocalActive && ollamaClient) {
         await sendToOllama(transcription);
     } else {
-        // This transcription will be handled by the module that requested it (e.g. gemini.js)
-        logger.info('[LocalAI] Transcription ready for external use:', transcription);
-        sendToRenderer('transcription-ready', transcription);
+        // Route transcription inside main process (no renderer IPC).
+        logger.info('[LocalAI] Transcription ready for provider routing', `(len=${transcription.length})`);
+        await handleLocalTranscription(transcription);
     }
 }
 
@@ -321,6 +365,9 @@ async function sendToOllama(transcription) {
     }
 
     logger.info('[LocalAI] Sending to Ollama:', transcription.substring(0, 100) + '...');
+    streamLogger.begin(streamSessionId(), 'user', `provider=ollama model=${ollamaModel || 'unknown'}`);
+    streamLogger.chunk(streamSessionId(), 'user', transcription.trim());
+    streamLogger.end(streamSessionId(), 'user');
 
     localConversationHistory.push({
         role: 'user',
@@ -343,6 +390,7 @@ async function sendToOllama(transcription) {
 
         let fullText = '';
         let isFirst = true;
+        streamLogger.begin(streamSessionId(), 'ai', `provider=ollama model=${ollamaModel || 'unknown'}`);
 
         geminiState.isAiStreaming = true;
         try {
@@ -350,16 +398,14 @@ async function sendToOllama(transcription) {
                 const token = part.message?.content || '';
                 if (token) {
                     fullText += token;
+                    streamLogger.chunk(streamSessionId(), 'ai', token);
                     sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
-                    
-                    // Real-time terminal chunk logging
-                    console.log(`\x1b[32m[AI] <\x1b[0m ${token.trim()}`);
-                    
                     isFirst = false;
                 }
             }
         } finally {
             geminiState.isAiStreaming = false;
+            streamLogger.end(streamSessionId(), 'ai', `chars=${fullText.length}`);
         }
 
         if (fullText.trim()) {
@@ -385,6 +431,14 @@ async function initializeLocalSession(ollamaHost, model, whisperModel, profile, 
     const { app } = require('electron');
     const prefs = getPreferences();
     whisperEngine = prefs.whisperEngine || 'cpp';
+    cppWhisperUnavailable = false;
+    consecutiveTranscriptionFailures = 0;
+    // whisper-node/cpp wrapper is unstable in many Electron macOS setups.
+    // Prefer Transformers on macOS unless explicitly overridden.
+    if (process.platform === 'darwin' && whisperEngine === 'cpp' && process.env.ALLOW_WHISPER_CPP !== '1') {
+        logger.warn('[LocalAI] Forcing Whisper engine to Transformers on macOS for stability. Set ALLOW_WHISPER_CPP=1 to force cpp.');
+        whisperEngine = 'transformers';
+    }
     
     // Dynamically calculate model path based on selected whisperModel name
     const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
@@ -417,11 +471,14 @@ async function initializeLocalSession(ollamaHost, model, whisperModel, profile, 
 
         // Load Whisper model
         if (whisperEngine === 'transformers') {
-            const pipeline = await loadWhisperPipeline(whisperModel);
+            const transformersModel = resolveTransformersWhisperModel(whisperModel);
+            const pipeline = await loadWhisperPipeline(transformersModel);
             if (!pipeline) {
                 sendToRenderer('session-initializing', false);
                 return false;
             }
+            logger.info(`[ENGINE_ACTIVE] transcription=whisper-transformers model=${transformersModel}`);
+            sendToRenderer('update-status', 'Engine: Whisper local (Transformers)');
         } else {
             // Validate whisper.cpp model path
             if (!whisperModelPath || !fs.existsSync(whisperModelPath)) {
@@ -431,6 +488,8 @@ async function initializeLocalSession(ollamaHost, model, whisperModel, profile, 
                 return false;
             }
             logger.info('[LocalAI] Using whisper.cpp model:', whisperModelPath);
+            logger.info(`[ENGINE_ACTIVE] transcription=whisper-cpp model=${whisperModelPath}`);
+            sendToRenderer('update-status', 'Engine: Whisper local (cpp)');
         }
 
         // Reset VAD state
@@ -448,10 +507,10 @@ async function initializeLocalSession(ollamaHost, model, whisperModel, profile, 
         sendToRenderer('session-initializing', false);
         sendToRenderer('update-status', 'AI ready - Listening...');
 
-        console.log('[LocalAI] Session initialized successfully');
+        logger.info('[LocalAI] Session initialized successfully');
         return true;
     } catch (error) {
-        console.error('[LocalAI] Initialization error:', error);
+        logger.error('[LocalAI] Initialization error:', error);
         sendToRenderer('session-initializing', false);
         sendToRenderer('update-status', 'AI error: ' + error.message);
         return false;
@@ -468,7 +527,7 @@ function processLocalAudio(monoChunk24k) {
 }
 
 function closeLocalSession() {
-    console.log('[LocalAI] Closing local session');
+    logger.info('[LocalAI] Closing local session');
     isLocalActive = false;
     isSpeaking = false;
     speechBuffers = [];
@@ -507,7 +566,7 @@ async function sendLocalImage(base64Data, prompt) {
     }
 
     try {
-        console.log('[LocalAI] Sending image to Ollama');
+        logger.info('[LocalAI] Sending image to Ollama');
         sendToRenderer('update-status', 'Analyzing image...');
 
         const userMessage = {
@@ -537,26 +596,32 @@ async function sendLocalImage(base64Data, prompt) {
 
         let fullText = '';
         let isFirst = true;
+        streamLogger.begin(streamSessionId(), 'user', `image-prompt model=${ollamaModel || 'unknown'}`);
+        streamLogger.chunk(streamSessionId(), 'user', prompt);
+        streamLogger.end(streamSessionId(), 'user');
+        streamLogger.begin(streamSessionId(), 'ai', `provider=ollama-image model=${ollamaModel || 'unknown'}`);
 
         for await (const part of response) {
             const token = part.message?.content || '';
             if (token) {
                 fullText += token;
+                streamLogger.chunk(streamSessionId(), 'ai', token);
                 sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
                 isFirst = false;
             }
         }
+        streamLogger.end(streamSessionId(), 'ai', `chars=${fullText.length}`);
 
         if (fullText.trim()) {
             localConversationHistory.push({ role: 'assistant', content: fullText.trim() });
             saveConversationTurn(prompt, fullText);
         }
 
-        console.log('[LocalAI] Image response completed');
+        logger.info('[LocalAI] Image response completed');
         sendToRenderer('update-status', 'Listening...');
         return { success: true, text: fullText, model: ollamaModel };
     } catch (error) {
-        console.error('[LocalAI] Image error:', error);
+        logger.error('[LocalAI] Image error:', error);
         sendToRenderer('update-status', 'Ollama error: ' + error.message);
         return { success: false, error: error.message };
     }
@@ -584,7 +649,8 @@ async function downloadWhisperModel(modelName = 'base.en') {
         try {
             const result = await new Promise((resolve, reject) => {
                 const https = require('https');
-                const request = https.get(currentUrl, { rejectUnauthorized: false }, (response) => {
+                // SECURITY: never disable TLS verification for model downloads.
+                const request = https.get(currentUrl, (response) => {
                     // Handle Redirects
                     if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
                         const nextUrl = response.headers.location;

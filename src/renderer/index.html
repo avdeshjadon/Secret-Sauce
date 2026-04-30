@@ -1,7 +1,11 @@
 <!doctype html>
 <html>
     <head>
-        <meta http-equiv="content-security-policy" content="script-src 'self' 'unsafe-inline'" />
+        <!-- SECURITY: Avoid 'unsafe-inline' for scripts. Keep inline styles allowed for now (page has inline <style>). -->
+        <meta
+            http-equiv="content-security-policy"
+            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: wss:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <title>Screen and Audio Capture</title>
         <style>
@@ -257,7 +261,7 @@
             <h2 style="margin-top: 0; font-size: 1.2rem; color: var(--accent)">Meeting Summary</h2>
             <div id="summaryContent"></div>
             <button
-                onclick="document.getElementById('summaryModal').classList.remove('visible')"
+                id="closeSummaryBtn"
                 style="
                     margin-top: 20px;
                     padding: 8px 16px;

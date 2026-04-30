@@ -22,7 +22,6 @@ export class AssistantView extends LitElement {
             line-height: var(--line-height);
             background: var(--bg-app);
             padding: var(--space-sm) var(--space-md);
-            scroll-behavior: smooth;
             user-select: text;
             cursor: text;
             color: var(--text-primary);
@@ -35,10 +34,6 @@ export class AssistantView extends LitElement {
 
         .response-container a {
             cursor: pointer;
-        }
-
-        .response-container [data-word] {
-            display: inline-block;
         }
 
         /* ── Markdown ── */
@@ -461,44 +456,95 @@ export class AssistantView extends LitElement {
                 window.marked.setOptions({
                     breaks: true,
                     gfm: true,
-                    sanitize: false,
+                    // SECURITY: marked's legacy sanitize option is not a safe sanitizer.
                 });
                 let rendered = window.marked.parse(content);
-                rendered = this.wrapWordsInSpans(rendered);
-                return rendered;
+                return this.sanitizeHtmlAllowlist(rendered);
             } catch (error) {
                 console.warn('Error parsing markdown:', error);
-                return content;
+                return this.renderPlainText(content);
             }
         }
-        return content;
+        // If marked isn't available, never treat model output as HTML.
+        return this.renderPlainText(content);
     }
 
-    wrapWordsInSpans(html) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const tagsToSkip = ['PRE'];
+    renderPlainText(text) {
+        const safe = this.escapeHtml(String(text ?? ''));
+        // Preserve line breaks in a minimal way.
+        return safe.replace(/\n/g, '<br/>');
+    }
 
-        function wrap(node) {
-            if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() && !tagsToSkip.includes(node.parentNode.tagName)) {
-                const words = node.textContent.split(/(\s+)/);
-                const frag = document.createDocumentFragment();
-                words.forEach(word => {
-                    if (word.trim()) {
-                        const span = document.createElement('span');
-                        span.setAttribute('data-word', '');
-                        span.textContent = word;
-                        frag.appendChild(span);
-                    } else {
-                        frag.appendChild(document.createTextNode(word));
-                    }
-                });
-                node.parentNode.replaceChild(frag, node);
-            } else if (node.nodeType === Node.ELEMENT_NODE && !tagsToSkip.includes(node.tagName)) {
-                Array.from(node.childNodes).forEach(wrap);
+    escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // Allowlist sanitizer (kept in component to avoid new build tooling/deps)
+    sanitizeHtmlAllowlist(unsafeHtml) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(String(unsafeHtml || ''), 'text/html');
+
+        const ALLOWED_TAGS = new Set([
+            'P', 'BR', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I',
+            'CODE', 'PRE', 'BLOCKQUOTE',
+            'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+            'HR',
+            'A',
+            'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
+            'SPAN',
+        ]);
+        const ALLOWED_ATTRS = {
+            A: new Set(['href', 'title', 'target', 'rel']),
+            SPAN: new Set(['class']),
+            CODE: new Set(['class']),
+            PRE: new Set(['class']),
+        };
+
+        function isSafeUrl(url) {
+            if (!url) return false;
+            try {
+                const u = new URL(url, window.location.origin);
+                return u.protocol === 'http:' || u.protocol === 'https:';
+            } catch {
+                return false;
             }
         }
-        Array.from(doc.body.childNodes).forEach(wrap);
+
+        function cleanNode(node) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const tag = node.tagName;
+                if (tag !== 'BODY' && tag !== 'HTML') {
+                    if (!ALLOWED_TAGS.has(tag)) {
+                        const text = doc.createTextNode(node.textContent || '');
+                        node.replaceWith(text);
+                        return;
+                    }
+
+                    const allowed = ALLOWED_ATTRS[tag] || new Set();
+                    for (const attr of Array.from(node.attributes)) {
+                        if (!allowed.has(attr.name)) node.removeAttribute(attr.name);
+                    }
+
+                    if (tag === 'A') {
+                        const href = node.getAttribute('href') || '';
+                        if (!isSafeUrl(href)) {
+                            node.removeAttribute('href');
+                        } else {
+                            node.setAttribute('target', '_blank');
+                            node.setAttribute('rel', 'noopener noreferrer');
+                        }
+                    }
+                }
+            }
+            for (const child of Array.from(node.childNodes)) cleanNode(child);
+        }
+
+        cleanNode(doc.body);
         return doc.body.innerHTML;
     }
 
@@ -544,26 +590,17 @@ export class AssistantView extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-
-            this.handlePreviousResponse = () => this.navigateToPreviousResponse();
-            this.handleNextResponse = () => this.navigateToNextResponse();
-            this.handleScrollUp = () => this.scrollResponseUp();
-            this.handleScrollDown = () => this.scrollResponseDown();
-            this.handleNextStep = () => {
-                if (this.handleScreenAnswer) {
-                    this.handleScreenAnswer();
-                }
-            };
-
-            ipcRenderer.on('navigate-previous-response', this.handlePreviousResponse);
-            ipcRenderer.on('navigate-next-response', this.handleNextResponse);
-            ipcRenderer.on('scroll-response-up', this.handleScrollUp);
-            ipcRenderer.on('scroll-response-down', this.handleScrollDown);
-            ipcRenderer.on('trigger-next-step', this.handleNextStep);
-        }
+        // Secure IPC: listen via contextBridge API (works with contextIsolation)
+        this._unsubs = [];
+        this._unsubs.push(window.electronAPI.on('navigate-previous-response', () => this.navigateToPreviousResponse()));
+        this._unsubs.push(window.electronAPI.on('navigate-next-response', () => this.navigateToNextResponse()));
+        this._unsubs.push(window.electronAPI.on('scroll-response-up', () => this.scrollResponseUp()));
+        this._unsubs.push(window.electronAPI.on('scroll-response-down', () => this.scrollResponseDown()));
+        this._unsubs.push(
+            window.electronAPI.on('trigger-next-step', () => {
+                if (this.handleScreenAnswer) this.handleScreenAnswer();
+            })
+        );
 
         this.handleAnalysisComplete = () => {
             this.isAnalyzing = false;
@@ -573,14 +610,9 @@ export class AssistantView extends LitElement {
 
     disconnectedCallback() {
         super.disconnectedCallback();
-
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            if (this.handlePreviousResponse) ipcRenderer.removeListener('navigate-previous-response', this.handlePreviousResponse);
-            if (this.handleNextResponse) ipcRenderer.removeListener('navigate-next-response', this.handleNextResponse);
-            if (this.handleScrollUp) ipcRenderer.removeListener('scroll-response-up', this.handleScrollUp);
-            if (this.handleScrollDown) ipcRenderer.removeListener('scroll-response-down', this.handleScrollDown);
-            if (this.handleNextStep) ipcRenderer.removeListener('trigger-next-step', this.handleNextStep);
+        if (this._unsubs) {
+            this._unsubs.forEach(fn => fn());
+            this._unsubs = [];
         }
 
         if (this.handleAnalysisComplete) {
@@ -623,13 +655,13 @@ export class AssistantView extends LitElement {
 
     firstUpdated() {
         super.firstUpdated();
-        this.updateResponseContent();
+        this.scheduleResponseUpdate();
     }
 
     updated(changedProperties) {
         super.updated(changedProperties);
         if (changedProperties.has('responses') || changedProperties.has('currentResponseIndex')) {
-            this.updateResponseContent();
+            this.scheduleResponseUpdate();
         }
 
         if (changedProperties.has('isAnalyzing')) {
@@ -637,12 +669,31 @@ export class AssistantView extends LitElement {
         }
     }
 
+    scheduleResponseUpdate() {
+        if (this._updatePending) return;
+        this._updatePending = true;
+        // Throttle innerHTML updates to ~16-20fps to prevent deep DOM thrashing and text blinking
+        setTimeout(() => {
+            this._updatePending = false;
+            this.updateResponseContent();
+        }, 50);
+    }
+
     updateResponseContent() {
         const container = this.shadowRoot.querySelector('#responseContainer');
         if (container) {
+            const wasAtBottom = Math.abs(container.scrollHeight - container.scrollTop - container.clientHeight) < 20;
             const currentResponse = this.getCurrentResponse();
             const renderedResponse = this.renderMarkdown(currentResponse);
+            
+            // Set HTML quickly
             container.innerHTML = renderedResponse;
+            
+            // Ensure smooth visual continuity if scrolling
+            if (wasAtBottom) {
+                container.scrollTop = container.scrollHeight;
+            }
+            
             if (this.shouldAnimateResponse) {
                 this.dispatchEvent(new CustomEvent('response-animation-complete', { bubbles: true, composed: true }));
             }

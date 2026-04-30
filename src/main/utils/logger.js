@@ -22,4 +22,38 @@ const createSpinner = text => {
     });
 };
 
-module.exports = { logger, chalk, createSpinner };
+const streamState = new Map();
+
+function normalizeChunk(text) {
+    return String(text ?? '')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n');
+}
+
+const streamLogger = {
+    begin(sessionId, source, meta = '') {
+        const key = `${sessionId}:${source}`;
+        streamState.set(key, 0);
+        const tag = source === 'user' ? chalk.cyan('USER') : chalk.green('AI');
+        const suffix = meta ? ` ${chalk.gray(meta)}` : '';
+        logger.log(`${chalk.gray('┌')} ${tag} ${chalk.bold('stream:start')} ${chalk.gray(`[${sessionId}]`)}${suffix}`);
+    },
+    chunk(sessionId, source, chunkText) {
+        const key = `${sessionId}:${source}`;
+        const nextIdx = (streamState.get(key) || 0) + 1;
+        streamState.set(key, nextIdx);
+        const tag = source === 'user' ? chalk.cyan('USER') : chalk.green('AI');
+        const text = normalizeChunk(chunkText);
+        logger.log(`${chalk.gray('│')} ${tag} ${chalk.gray(`#${String(nextIdx).padStart(3, '0')}`)} ${text}`);
+    },
+    end(sessionId, source, meta = '') {
+        const key = `${sessionId}:${source}`;
+        const count = streamState.get(key) || 0;
+        streamState.delete(key);
+        const tag = source === 'user' ? chalk.cyan('USER') : chalk.green('AI');
+        const suffix = meta ? ` ${chalk.gray(meta)}` : '';
+        logger.log(`${chalk.gray('└')} ${tag} ${chalk.bold('stream:end')} ${chalk.gray(`[${sessionId}] chunks=${count}`)}${suffix}`);
+    },
+};
+
+module.exports = { logger, chalk, createSpinner, streamLogger };

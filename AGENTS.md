@@ -22,6 +22,28 @@ quotes). `src/assets` and `node_modules` are ignored via `.prettierignore`.
 The project does not provide linting; `npm run lint` simply prints
 "No linting configured".
 
+## Production readiness expectations
+
+This app captures screen/audio and processes sensitive content. “Production ready”
+means **secure defaults**, **predictable IPC**, and **no silent security bypasses**.
+
+- **Renderer security**: keep `contextIsolation: true`, `nodeIntegration: false`.
+- **IPC contract**:
+  - Renderer must use `window.electronAPI` only (from `preload.js`).
+  - Main process must whitelist + validate every IPC channel + payload.
+  - Any new channel must be added to `preload.js` allowlists and implemented in main.
+- **No insecure TLS by default**:
+  - Never set `NODE_TLS_REJECT_UNAUTHORIZED=0` unconditionally.
+  - Dev-only escape hatch is allowed via `ALLOW_INSECURE_TLS=1`.
+- **XSS protection**:
+  - Never render AI/user content directly with `innerHTML` without sanitizing.
+  - Keep CSP strict (no inline scripts).
+
+### Supported environment variables
+
+- `ALLOW_INSECURE_TLS=1`: Dev-only. Disables TLS verification.
+- `SYSTEM_AUDIO_DUMP_SHA256=<sha256>`: Optional macOS helper integrity check.
+
 ## Code standards
 
 Development is gradually migrating toward a TypeScript/React codebase inspired by the

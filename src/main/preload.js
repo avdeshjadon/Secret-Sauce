@@ -73,6 +73,8 @@ const VALID_INVOKE_CHANNELS = new Set([
     'get-app-version',
     'quit-application',
     'open-external',
+    'toggle-window-visibility',
+    'window-minimize',
 ]);
 
 const VALID_SEND_CHANNELS = new Set([
@@ -93,6 +95,12 @@ const VALID_ON_CHANNELS = new Set([
     'window-moved',
     'shortcut-triggered',
     'whisper-download-progress',
+    // Global shortcut events forwarded from main process
+    'trigger-next-step',
+    'navigate-previous-response',
+    'navigate-next-response',
+    'scroll-response-up',
+    'scroll-response-down',
 ]);
 
 // ─────────────────────────────────────────────

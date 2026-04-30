@@ -47,6 +47,16 @@ Tailor your experience with optimized prompts for every scenario:
 - [Google Gemini API Key](https://aistudio.google.com/apikey)
 - Node.js & npm
 
+### Production-ready defaults (important)
+- **Secure renderer**: `contextIsolation: true`, `nodeIntegration: false`, IPC only through `preload.js`.
+- **No insecure TLS by default**: TLS verification is **ON**. Never ship with it disabled.
+- **XSS hardened**: AI markdown is sanitized before being rendered to the DOM.
+- **CSP enabled**: no inline scripts; reduces impact of injection bugs.
+
+### Environment variables
+- `ALLOW_INSECURE_TLS=1`: **Dev-only.** Disables TLS verification. Never use for production builds.
+- `SYSTEM_AUDIO_DUMP_SHA256=<sha256>`: Optional integrity check for the bundled `SystemAudioDump` helper on macOS.
+
 > ### ⚠️ Important Note for macOS Users
 >
 > Because Secret Sauce is a free, open-source application, it is not signed with a paid Apple Developer certificate. When you download the compiled `.dmg` and drag the app into your Applications folder, macOS Gatekeeper may flag the app as "damaged" and offer to move it to the Trash.
@@ -65,3 +75,26 @@ Tailor your experience with optimized prompts for every scenario:
    git clone https://github.com/avdeshjadon/secret-sauce.git
    cd secret-sauce
    ```
+
+2. **Install dependencies**:
+
+   ```bash
+   npm install
+   ```
+
+3. **Start the app**:
+
+   ```bash
+   npm start
+   ```
+
+## Security model (simple)
+- **Renderer cannot access Node.js**. All privileged actions go through `preload.js` (`contextBridge`) and are whitelisted.
+- **External links**: only `http(s)` URLs are allowed by the main process.
+- **AI output**: markdown is rendered then sanitized with a conservative allowlist before `innerHTML`.
+
+## Release checklist (minimal)
+- Run `npx prettier --write .`
+- `npm start` on each target OS you ship
+- Confirm **no** one is using `ALLOW_INSECURE_TLS=1`
+- (macOS) If you use `SYSTEM_AUDIO_DUMP_SHA256`, verify it matches the packaged binary

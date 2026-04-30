@@ -574,21 +574,13 @@ export class MainView extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            this.handleNextStep = () => {
-                this._handleStart();
-            };
-            ipcRenderer.on('trigger-next-step', this.handleNextStep);
-        }
+        // Secure IPC: listen via contextBridge API (works with contextIsolation)
+        this._unsubNextStep = window.electronAPI.on('trigger-next-step', () => this._handleStart());
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            if (this.handleNextStep) ipcRenderer.removeListener('trigger-next-step', this.handleNextStep);
-        }
+        if (this._unsubNextStep) this._unsubNextStep();
         if (this._animId) cancelAnimationFrame(this._animId);
     }
 

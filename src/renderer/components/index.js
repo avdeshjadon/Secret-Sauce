@@ -9,4 +9,4 @@ export { HelpView } from './views/HelpView.js';
 export { HistoryView } from './views/HistoryView.js';
 export { AssistantView } from './views/AssistantView.js';
 export { OnboardingView } from './views/OnboardingView.js';
-export { AdvancedView } from './views/AdvancedView.js';
+// NOTE: AdvancedView was removed; keep exports in sync with existing files.

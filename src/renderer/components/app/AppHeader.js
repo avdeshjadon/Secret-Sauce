@@ -189,8 +189,8 @@ export class AppHeader extends LitElement {
     }
 
     async _openUpdatePage() {
-        const { ipcRenderer } = require('electron');
-        await ipcRenderer.invoke('open-external', 'https://secretsauce.com');
+        
+        await window.electronAPI.invoke('open-external', 'https://secretsauce.com');
     }
 
     disconnectedCallback() {

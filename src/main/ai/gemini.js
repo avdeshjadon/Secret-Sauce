@@ -1,6 +1,6 @@
 const { GoogleGenAI, Modality } = require('@google/genai');
 const { BrowserWindow, ipcMain } = require('electron');
-const { logger, createSpinner } = require('../utils/logger');
+const { logger, createSpinner, streamLogger } = require('../utils/logger');
 const { saveDebugAudio } = require('../audio/utils');
 const { getSystemPrompt } = require('./prompts');
 const {
@@ -11,6 +11,7 @@ const {
     incrementCharUsage,
     getModelForToday,
     getPreferences,
+    updatePreference,
 } = require('../storage');
 const { connectCloud, sendCloudAudio, sendCloudText, sendCloudImage, closeCloud, isCloudActive, setOnTurnComplete } = require('./cloud');
 
@@ -47,9 +48,11 @@ const INITIAL_SESSION_STATE = () => ({
     isAiStreaming: false,
     isUserStreaming: false,
     userStreamTimeout: null,
+    userFlushTimeout: null,
 });
 
 let state = INITIAL_SESSION_STATE();
+let transcriptionFailoverInProgress = false;
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 2000;
@@ -65,27 +68,133 @@ function sendToRenderer(channel, data) {
     }
 }
 
-// ── Transcription Handler ──
+function streamSessionId() {
+    return state.sessionId || 'no-session';
+}
 
-ipcMain.on('transcription-ready', async (event, text) => {
-    logger.info('[Gemini] Received local transcription:', text);
-    if (!text || text.trim() === '') return;
+function shouldUseGeminiRealtimeTranscription() {
+    if (state.providerMode !== 'byok') return false;
+    const prefs = getPreferences();
+    return (prefs.transcriptionEngine || 'gemini') === 'gemini';
+}
 
-    if (state.providerMode === 'byok') {
-        if (global.geminiSessionRef && global.geminiSessionRef.current) {
-            try {
-                logger.info('[Gemini] Sending transcription to Gemini Live...');
-                await global.geminiSessionRef.current.sendRealtimeInput({ text });
-            } catch (error) {
-                logger.error('[Gemini] Error sending text to Gemini Live:', error);
-            }
-        } else if (hasGroqKey()) {
-            sendToGroq(text);
-        } else {
-            sendToGemma(text);
-        }
+function getActiveTranscriptionEngineLabel() {
+    const prefs = getPreferences();
+    const selected = prefs.transcriptionEngine || 'gemini';
+    if (state.providerMode === 'local') return 'whisper-local';
+    if (state.providerMode === 'cloud') return 'cloud-transcription';
+    return selected === 'whisper' ? 'whisper-local' : 'gemini-cloud';
+}
+
+async function flushUserTranscriptionBuffer() {
+    const text = (state.currentTranscription || '').trim();
+    if (!text) return;
+    // If assistant is still streaming previous answer, retry shortly.
+    if (state.isAiStreaming) {
+        if (state.userFlushTimeout) clearTimeout(state.userFlushTimeout);
+        state.userFlushTimeout = setTimeout(() => {
+            flushUserTranscriptionBuffer().catch(() => {});
+        }, 250);
+        return;
     }
-});
+    state.currentTranscription = '';
+    if (hasGroqKey()) {
+        await sendToGroq(text);
+    } else {
+        await sendToGemma(text);
+    }
+}
+
+async function failoverToWhisperTranscription(reason = 'Gemini transcription unavailable') {
+    if (transcriptionFailoverInProgress) return false;
+    transcriptionFailoverInProgress = true;
+    try {
+        logger.warn(`[Failover] Switching transcription engine to Whisper: ${reason}`);
+        updatePreference('transcriptionEngine', 'whisper');
+        const prefs = getPreferences();
+        const ok = await getLocalAi().initializeLocalSession(null, null, prefs.whisperModel || 'tiny.en', state.profile || 'interview', state.customPrompt || '');
+        if (ok) {
+            sendToRenderer('update-status', 'Gemini transcription failed. Switched to local Whisper.');
+            return true;
+        }
+        logger.error('[Failover] Whisper fallback failed to initialize');
+        return false;
+    } catch (error) {
+        logger.error('[Failover] Error switching to Whisper:', error);
+        return false;
+    } finally {
+        transcriptionFailoverInProgress = false;
+    }
+}
+
+async function failoverToGeminiTranscription(reason = 'Whisper transcription unavailable') {
+    if (transcriptionFailoverInProgress) return false;
+    transcriptionFailoverInProgress = true;
+    try {
+        logger.warn(`[Failover] Switching transcription engine to Gemini: ${reason}`);
+        updatePreference('transcriptionEngine', 'gemini');
+        if (!state.sessionParams?.apiKey) {
+            logger.warn('[Failover] No Gemini session params available; cannot reinitialize Gemini transcription');
+            return false;
+        }
+        if (global.geminiSessionRef?.current) {
+            try {
+                await global.geminiSessionRef.current.close();
+            } catch (e) {}
+            global.geminiSessionRef.current = null;
+        }
+        const session = await initializeGeminiSession(
+            state.sessionParams.apiKey,
+            state.sessionParams.customPrompt,
+            state.sessionParams.profile,
+            state.sessionParams.language,
+            true
+        );
+        if (session && global.geminiSessionRef) {
+            global.geminiSessionRef.current = session;
+            sendToRenderer('update-status', 'Whisper failed. Switched to Gemini transcription.');
+            return true;
+        }
+        return false;
+    } catch (error) {
+        logger.error('[Failover] Error switching to Gemini:', error);
+        return false;
+    } finally {
+        transcriptionFailoverInProgress = false;
+    }
+}
+
+// ── Local transcription routing (main-process to main-process; no IPC) ──
+function shouldLogContent() {
+    return process.env.DEBUG_LOG_CONTENT === '1';
+}
+
+async function handleLocalTranscription(text) {
+    if (!text || String(text).trim() === '') return;
+    const clean = String(text).trim();
+    logger.info('[LocalTranscription] Received', shouldLogContent() ? `: ${clean}` : `(len=${clean.length})`);
+    streamLogger.begin(streamSessionId(), 'user', 'local-whisper');
+    streamLogger.chunk(streamSessionId(), 'user', clean);
+    streamLogger.end(streamSessionId(), 'user');
+
+    if (state.providerMode !== 'byok') return;
+
+    if (global.geminiSessionRef && global.geminiSessionRef.current) {
+        try {
+            await global.geminiSessionRef.current.sendRealtimeInput({ text: clean });
+        } catch (error) {
+            logger.error('[Gemini] Error sending local transcription to Gemini Live:', error);
+        }
+        return;
+    }
+
+    if (hasGroqKey()) {
+        await sendToGroq(clean);
+        return;
+    }
+
+    await sendToGemma(clean);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Speaker diarization
@@ -139,12 +248,14 @@ function saveConversationTurn(transcription, aiResponse) {
     };
 
     state.conversationHistory.push(turn);
-    
-    // Improved terminal logging for conversation turns - Data-centric look
-    process.stdout.write('\r\x1b[K'); // Clear current line
-    console.log(`\n\x1b[34m[USER]\x1b[0m : ${turn.transcription}`);
-    console.log(`\x1b[32m[AI]\x1b[0m   : ${turn.ai_response}\n`);
-    console.log('\x1b[90m' + '-'.repeat(60) + '\x1b[0m');
+    // Minimal terminal logging by default (avoid leaking sensitive content).
+    // Set DEBUG_LOG_CONTENT=1 to include full text.
+    if (shouldLogContent()) {
+        logger.info('[Turn] USER:', turn.transcription);
+        logger.info('[Turn] AI  :', turn.ai_response);
+    } else {
+        logger.info('[Turn] saved', { userLen: turn.transcription.length, aiLen: turn.ai_response.length });
+    }
 
     sendToRenderer('save-conversation-turn', {
         sessionId: state.sessionId,
@@ -166,11 +277,11 @@ function saveScreenAnalysis(prompt, response, model) {
     };
 
     state.screenAnalysisHistory.push(entry);
-    
-    // Improved terminal logging for screen analysis
-    process.stdout.write('\r\x1b[K'); // Clear current line
-    console.log(`\n\x1b[35m[SCREEN ANALYSIS]:\x1b[0m ${entry.prompt}`);
-    console.log(`\x1b[32m[RESULT]:\x1b[0m ${entry.response}\n`);
+    if (shouldLogContent()) {
+        logger.info('[ScreenAnalysis]', { model, prompt: entry.prompt, response: entry.response });
+    } else {
+        logger.info('[ScreenAnalysis] saved', { model, promptLen: String(entry.prompt || '').length, responseLen: entry.response.length });
+    }
 
     sendToRenderer('save-screen-analysis', {
         sessionId: state.sessionId,
@@ -319,6 +430,9 @@ async function sendToGroq(transcription) {
     }
 
     logger.info(`Sending to Groq (${modelToUse}):`, transcription.substring(0, 100) + '...');
+    streamLogger.begin(streamSessionId(), 'user', `provider=groq model=${modelToUse}`);
+    streamLogger.chunk(streamSessionId(), 'user', transcription.trim());
+    streamLogger.end(streamSessionId(), 'user');
 
     state.groqConversationHistory.push({ role: 'user', content: transcription.trim() });
     if (state.groqConversationHistory.length > 20) {
@@ -352,8 +466,9 @@ async function sendToGroq(transcription) {
         const decoder = new TextDecoder();
         let fullText = '';
         let isFirst = true;
+        streamLogger.begin(streamSessionId(), 'ai', `provider=groq model=${modelToUse}`);
 
-        state.isAiStreaming = true; // Silence wave during Groq response
+        state.isAiStreaming = true; // Used by audio-wave logic
         try {
             while (true) {
                 const { done, value } = await reader.read();
@@ -371,12 +486,10 @@ async function sendToGroq(transcription) {
                             const token = json.choices?.[0]?.delta?.content || '';
                             if (token) {
                                 fullText += token;
+                                streamLogger.chunk(streamSessionId(), 'ai', token);
                                 const displayText = stripThinkingTags(fullText);
                                 if (displayText) {
                                     sendToRenderer(isFirst ? 'new-response' : 'update-response', displayText);
-                                    
-                                    // Real-time terminal chunk logging
-                                    console.log(`\x1b[32m[AI] <\x1b[0m ${token.trim()}`);
                                     
                                     isFirst = false;
                                 }
@@ -389,6 +502,7 @@ async function sendToGroq(transcription) {
             }
         } finally {
             state.isAiStreaming = false; // Reset flag
+            streamLogger.end(streamSessionId(), 'ai', `chars=${fullText.length}`);
         }
 
         const cleanedResponse = stripThinkingTags(fullText);
@@ -426,6 +540,9 @@ async function sendToGemma(transcription) {
     }
 
     logger.info('Sending to Gemma:', transcription.substring(0, 100) + '...');
+    streamLogger.begin(streamSessionId(), 'user', 'provider=gemma');
+    streamLogger.chunk(streamSessionId(), 'user', transcription.trim());
+    streamLogger.end(streamSessionId(), 'user');
     state.groqConversationHistory.push({ role: 'user', content: transcription.trim() });
 
     const trimmedHistory = trimConversationHistoryForGemma(state.groqConversationHistory, 42000);
@@ -451,23 +568,22 @@ async function sendToGemma(transcription) {
 
         let fullText = '';
         let isFirst = true;
+        streamLogger.begin(streamSessionId(), 'ai', 'provider=gemma');
 
-        state.isAiStreaming = true; // Silence wave during Gemma response
+        state.isAiStreaming = true;
         try {
             for await (const chunk of response) {
                 const chunkText = chunk.text;
                 if (chunkText) {
                     fullText += chunkText;
+                    streamLogger.chunk(streamSessionId(), 'ai', chunkText);
                     sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
-                    
-                    // Real-time terminal chunk logging
-                    console.log(`\x1b[32m[AI] <\x1b[0m ${chunkText.trim()}`);
-                    
                     isFirst = false;
                 }
             }
         } finally {
             state.isAiStreaming = false; // Reset flag
+            streamLogger.end(streamSessionId(), 'ai', `chars=${fullText.length}`);
         }
 
         const systemPromptChars = systemPrompt.length;
@@ -486,8 +602,8 @@ async function sendToGemma(transcription) {
         sendToRenderer('update-status', 'Listening...');
     } catch (error) {
         if (error.message.includes('503') || error.message.includes('UNAVAILABLE')) {
-            console.log('\x1b[33m%s\x1b[0m', `[RETRY] Gemma Busy. Falling back to Gemini 1.5 Flash for speed...`);
-            state.isAiStreaming = true; // Silence wave during Flash response
+            logger.warn('[Gemma] Busy; falling back to Gemini Flash');
+            state.isAiStreaming = true;
             try {
                 const ai = new GoogleGenAI({ apiKey });
                 const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -495,15 +611,13 @@ async function sendToGemma(transcription) {
                 
                 let fullText = '';
                 let isFirst = true;
+                streamLogger.begin(streamSessionId(), 'ai', 'provider=gemini-flash-fallback');
                 for await (const chunk of result.stream) {
                     const chunkText = chunk.text();
                     if (chunkText) {
                         fullText += chunkText;
+                        streamLogger.chunk(streamSessionId(), 'ai', chunkText);
                         sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
-                        
-                        // Real-time terminal chunk logging
-                        console.log(`\x1b[32m[AI] <\x1b[0m ${chunkText.trim()}`);
-                        
                         isFirst = false;
                     }
                 }
@@ -516,10 +630,11 @@ async function sendToGemma(transcription) {
                 logger.error('Double failure (Gemma + Gemini Flash):', fallbackError);
             } finally {
                 state.isAiStreaming = false; // Reset flag
+                streamLogger.end(streamSessionId(), 'ai');
             }
         }
 
-        console.log('\x1b[33m%s\x1b[0m', `[FALLBACK] Gemma Cloud failed: ${error.message}. Trying Local Ollama...`);
+        logger.warn('[Gemma] Cloud failed; trying Local Ollama fallback', error.message);
         
         // Attempt fallback to Local AI (Ollama) if available
         const localAi = require('./localai');
@@ -571,27 +686,36 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     const engineToUse = prefs.transcriptionEngine || 'gemini';
     let isUsingWhisper = false;
 
-    console.log('\n' + '='.repeat(60));
+    if (process.env.DEBUG_LOG_CONTENT === '1') logger.info('='.repeat(60));
     if (engineToUse === 'whisper') {
         logger.info(`[ENGINE] >>> USING LOCAL WHISPER (PRIVATE) <<< Model: ${prefs.whisperModel}`);
         const whisperSuccess = await getLocalAi().initializeLocalSession(null, null, prefs.whisperModel, profile, customPrompt);
         if (whisperSuccess) {
             isUsingWhisper = true;
+            logger.info(`[ENGINE_ACTIVE] transcription=${getActiveTranscriptionEngineLabel()}`);
+            sendToRenderer('update-status', 'Engine: Whisper local');
         } else {
-            console.log('\x1b[33m%s\x1b[0m', `[FALLBACK] Failed to start Whisper! Falling back to Gemini Internal...`);
+            logger.warn('[Whisper] Failed to start; falling back to Gemini internal');
             logger.warn('[Gemini] Failed to initialize local Whisper, falling back to Gemini internal transcription');
+            updatePreference('transcriptionEngine', 'gemini');
+            sendToRenderer('update-status', 'Whisper unavailable. Switched to Gemini transcription.');
+            logger.info(`[ENGINE_ACTIVE] transcription=${getActiveTranscriptionEngineLabel()}`);
         }
     } else {
         logger.info('[ENGINE] >>> USING GEMINI CLOUD TRANSCRIPTION (FASTEST) <<<');
         isUsingWhisper = false;
+        logger.info(`[ENGINE_ACTIVE] transcription=${getActiveTranscriptionEngineLabel()}`);
+        sendToRenderer('update-status', 'Engine: Gemini cloud');
     }
-    console.log('='.repeat(60) + '\n');
+    if (process.env.DEBUG_LOG_CONTENT === '1') logger.info('='.repeat(60));
 
     try {
         const session = await client.live.connect({
             model: 'gemini-2.5-flash-native-audio-preview-09-2025',
             callbacks: {
                 onopen: () => {
+                    streamLogger.begin(streamSessionId(), 'user', 'provider=gemini-live');
+                    streamLogger.begin(streamSessionId(), 'ai', 'provider=gemini-live');
                     sendToRenderer('update-status', 'Live session connected');
                 },
                 onmessage: message => {
@@ -601,8 +725,14 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         const text = message.serverContent.inputTranscription.text || formatSpeakerResults(message.serverContent.inputTranscription.results);
                         if (text && text.trim() !== '') {
                             state.currentTranscription += text;
-                            // Print every chunk on a new line for that "Live Stream" feel
-                            console.log(`\x1b[34m[USER] >\x1b[0m ${text.trim()}`);
+                            streamLogger.chunk(streamSessionId(), 'user', text.trim());
+                            // Early flush for lower latency (don't wait only for generationComplete).
+                            if (state.userFlushTimeout) clearTimeout(state.userFlushTimeout);
+                            state.userFlushTimeout = setTimeout(() => {
+                                flushUserTranscriptionBuffer().catch(err => {
+                                    logger.error('Early transcription flush failed:', err);
+                                });
+                            }, 450);
                         }
 
                         // Reset flag after 1 second of no new transcription chunks
@@ -618,30 +748,35 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         const text = message.serverContent.modelTurn.parts.map(p => p.text || '').join('');
                         if (text && text.trim() !== '') {
                             state.messageBuffer += text;
-                            console.log(`\x1b[32m[AI] <\x1b[0m ${text.trim()}`);
+                            streamLogger.chunk(streamSessionId(), 'ai', text.trim());
                         }
                     }
 
                     if (message.serverContent?.generationComplete) {
                         state.isAiStreaming = false; // Reset flag when done
+                        streamLogger.end(streamSessionId(), 'ai');
                         if (state.currentTranscription.trim() !== '') {
-                            if (hasGroqKey()) {
-                                sendToGroq(state.currentTranscription);
-                            } else {
-                                sendToGemma(state.currentTranscription);
-                            }
-                            state.currentTranscription = '';
+                            streamLogger.end(streamSessionId(), 'user');
+                            flushUserTranscriptionBuffer().catch(err => {
+                                logger.error('Final transcription flush failed:', err);
+                            });
                         }
                         state.messageBuffer = '';
                     }
 
                     if (message.serverContent?.turnComplete) {
+                        streamLogger.begin(streamSessionId(), 'user', 'provider=gemini-live');
+                        streamLogger.begin(streamSessionId(), 'ai', 'provider=gemini-live');
                         sendToRenderer('update-status', 'Listening...');
                     }
                 },
                 onerror: e => {
                     logger.error('Session error:', e.message);
                     sendToRenderer('update-status', 'Error: ' + e.message);
+                    const prefs = getPreferences();
+                    if ((prefs.transcriptionEngine || 'gemini') === 'gemini') {
+                        failoverToWhisperTranscription(`Gemini onerror: ${e.message}`);
+                    }
                 },
                 onclose: e => {
                     logger.info('Session closed:', e.reason);
@@ -685,13 +820,13 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         }
         return session;
     } catch (error) {
-        console.log('\x1b[31m%s\x1b[0m', `[CRITICAL] Failed to initialize Gemini session: ${error.message}`);
+        logger.error('[CRITICAL] Failed to initialize Gemini session:', error.message);
         
         // Fallback to local Whisper if cloud session fails
         const prefs = getPreferences();
         if (prefs.transcriptionEngine !== 'whisper') {
-            console.log('\x1b[33m%s\x1b[0m', '[FALLBACK] Attempting to start Local Whisper due to Gemini failure...');
-            await getLocalAi().initializeLocalSession(null, null, prefs.whisperModel || 'base.en', profile, customPrompt);
+            logger.warn('[FALLBACK] Attempting to start Local Whisper due to Gemini failure...');
+            await failoverToWhisperTranscription(`Gemini init failed: ${error.message}`);
         }
 
         logger.error('Failed to initialize Gemini session:', error);
@@ -709,6 +844,10 @@ async function attemptReconnect() {
 
     state.messageBuffer = '';
     state.currentTranscription = '';
+    if (state.userFlushTimeout) {
+        clearTimeout(state.userFlushTimeout);
+        state.userFlushTimeout = null;
+    }
 
     sendToRenderer('update-status', `Reconnecting... (${state.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
@@ -826,7 +965,7 @@ async function startMacOSAudioCapture(geminiSessionRef) {
 
     logger.info('SystemAudioDump started with PID:', state.systemAudioProc.pid);
 
-    const CHUNK_DURATION = 0.1;
+    const CHUNK_DURATION = 0.05;
     const SAMPLE_RATE = 24000;
     const BYTES_PER_SAMPLE = 2;
     const CHANNELS = 2;
@@ -845,8 +984,10 @@ async function startMacOSAudioCapture(geminiSessionRef) {
                 sendCloudAudio(monoChunk);
             } else if (state.providerMode === 'local') {
                 getLocalAi().processLocalAudio(monoChunk);
-            } else {
+            } else if (shouldUseGeminiRealtimeTranscription()) {
                 sendAudioToGemini(monoChunk.toString('base64'), geminiSessionRef);
+            } else {
+                getLocalAi().processLocalAudio(monoChunk);
             }
 
             if (process.env.DEBUG_AUDIO) {
@@ -893,8 +1034,8 @@ const waveChars = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '▆', '▅', 
 async function sendAudioToGemini(base64Data, geminiSessionRef) {
     if (!geminiSessionRef.current) return;
     try {
-        // Only print wave if NO ONE is currently streaming a response (AI or User)
-        if (!state.isAiStreaming && !state.isUserStreaming) {
+        // Minimal terminal output by default; enable wave only if explicitly requested.
+        if (process.env.SHOW_AUDIO_WAVE === '1' && !state.isAiStreaming && !state.isUserStreaming) {
             const char = waveChars[waveIndex % waveChars.length];
             process.stdout.write(`\r\x1b[K\x1b[33m${char} [STREAMING AUDIO]\x1b[0m`);
             waveIndex++;
@@ -1020,13 +1161,21 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             sendCloudAudio(Buffer.from(data, 'base64'));
             return { success: true };
         }
-        if (state.providerMode === 'local' || state.providerMode === 'byok') {
+        if (state.providerMode === 'local') {
+            getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
+            return { success: true };
+        }
+        if (shouldUseGeminiRealtimeTranscription() && geminiSessionRef.current) {
+            await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+            return { success: true };
+        }
+        if (state.providerMode === 'byok') {
             getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
             return { success: true };
         }
         if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
         
-        if (!state.isAiStreaming) {
+        if (process.env.SHOW_AUDIO_WAVE === '1' && !state.isAiStreaming) {
             const char = waveChars[waveIndex % waveChars.length];
             process.stdout.write(`\r\x1b[K\x1b[33m${char} [STREAMING AUDIO]\x1b[0m`);
             waveIndex++;
@@ -1051,13 +1200,21 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             sendCloudAudio(Buffer.from(data, 'base64'));
             return { success: true };
         }
-        if (state.providerMode === 'local' || state.providerMode === 'byok') {
+        if (state.providerMode === 'local') {
+            getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
+            return { success: true };
+        }
+        if (shouldUseGeminiRealtimeTranscription() && geminiSessionRef.current) {
+            await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+            return { success: true };
+        }
+        if (state.providerMode === 'byok') {
             getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
             return { success: true };
         }
         if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
         
-        if (!state.isAiStreaming) {
+        if (process.env.SHOW_AUDIO_WAVE === '1' && !state.isAiStreaming) {
             const char = waveChars[waveIndex % waveChars.length];
             process.stdout.write(`\r\x1b[K\x1b[33m${char} [STREAMING MIC]\x1b[0m`);
             waveIndex++;
@@ -1083,7 +1240,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 return { success: false, error: 'Image buffer too small' };
             }
 
-            process.stdout.write('!');
+            if (process.env.SHOW_IMAGE_PINGS === '1') process.stdout.write('!');
 
             if (state.providerMode === 'cloud') {
                 const sent = sendCloudImage(data);
@@ -1230,6 +1387,7 @@ module.exports = {
     initializeGeminiSession,
     getEnabledTools,
     sendToRenderer,
+    handleLocalTranscription,
     initializeNewSession,
     saveConversationTurn,
     getCurrentSessionData,
@@ -1241,5 +1399,7 @@ module.exports = {
     sendImageToGeminiHttp,
     setupGeminiIpcHandlers,
     formatSpeakerResults,
+    failoverToGeminiTranscription,
+    failoverToWhisperTranscription,
     state,
 };

@@ -459,10 +459,7 @@ export class CustomizeView extends LitElement {
 
     async saveKeybinds() {
         await secretSauce.storage.setKeybinds(this.keybinds);
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('update-keybinds', this.keybinds);
-        }
+        window.electronAPI.send('update-keybinds', this.keybinds);
     }
 
     handleProfileSelect(e) {
@@ -506,13 +503,10 @@ export class CustomizeView extends LitElement {
     async handleGoogleSearchChange(e) {
         this.googleSearchEnabled = e.target.checked;
         await secretSauce.storage.updatePreference('googleSearchEnabled', this.googleSearchEnabled);
-        if (window.require) {
-            try {
-                const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('update-google-search-setting', this.googleSearchEnabled);
-            } catch (error) {
-                console.error('Failed to notify main process:', error);
-            }
+        try {
+            await secretSauce.invoke('update-google-search-setting', this.googleSearchEnabled);
+        } catch (error) {
+            console.error('Failed to notify main process:', error);
         }
         this.requestUpdate();
     }
@@ -599,10 +593,7 @@ export class CustomizeView extends LitElement {
     async resetKeybinds() {
         this.keybinds = this.getDefaultKeybinds();
         await secretSauce.storage.setKeybinds(null);
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('update-keybinds', this.keybinds);
-        }
+        window.electronAPI.send('update-keybinds', this.keybinds);
         this.requestUpdate();
     }
 
@@ -621,6 +612,7 @@ export class CustomizeView extends LitElement {
                 selectedScreenshotInterval: '5',
                 selectedImageQuality: 'medium',
                 audioMode: 'speaker_only',
+                transcriptionEngine: 'gemini',
                 fontSize: 20,
                 backgroundTransparency: 0.8,
                 googleSearchEnabled: false,
@@ -633,16 +625,14 @@ export class CustomizeView extends LitElement {
             // Restore keybinds
             this.keybinds = this.getDefaultKeybinds();
             await secretSauce.storage.setKeybinds(null);
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('update-keybinds', this.keybinds);
-            }
+            window.electronAPI.send('update-keybinds', this.keybinds);
 
             // Apply to local state
             this.selectedProfile = defaults.selectedProfile;
             this.selectedLanguage = defaults.selectedLanguage;
             this.selectedImageQuality = defaults.selectedImageQuality;
             this.audioMode = defaults.audioMode;
+            this.transcriptionEngine = defaults.transcriptionEngine;
             this.fontSize = defaults.fontSize;
             this.backgroundTransparency = defaults.backgroundTransparency;
             this.googleSearchEnabled = defaults.googleSearchEnabled;
