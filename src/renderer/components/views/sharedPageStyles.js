@@ -211,7 +211,8 @@ export const unifiedPageStyles = css`
         .unified-page {
             padding: var(--space-md);
         }
-        .grid-2, .grid-3 {
+        .grid-2,
+        .grid-3 {
             grid-template-columns: 1fr;
         }
     }

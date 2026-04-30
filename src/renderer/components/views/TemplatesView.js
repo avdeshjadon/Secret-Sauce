@@ -142,8 +142,18 @@ export class TemplatesView extends LitElement {
         try {
             const prefs = await secretSauce.storage.getPreferences();
             this.templates = prefs.templates || [
-                { id: 'default-interview', name: 'Standard Interview', content: 'Act as a senior software engineer conducting a technical interview. Focus on clean code, architecture, and problem-solving.' },
-                { id: 'default-sales', name: 'Sales Closer', content: 'Act as a professional sales consultant. Help identify pain points and suggest appropriate solutions based on the conversation.' }
+                {
+                    id: 'default-interview',
+                    name: 'Standard Interview',
+                    content:
+                        'Act as a senior software engineer conducting a technical interview. Focus on clean code, architecture, and problem-solving.',
+                },
+                {
+                    id: 'default-sales',
+                    name: 'Sales Closer',
+                    content:
+                        'Act as a professional sales consultant. Help identify pain points and suggest appropriate solutions based on the conversation.',
+                },
             ];
             this.activeTemplateId = prefs.activeTemplateId || (this.templates.length > 0 ? this.templates[0].id : null);
             this.requestUpdate();
@@ -155,7 +165,7 @@ export class TemplatesView extends LitElement {
     async saveTemplates() {
         await secretSauce.storage.updatePreference('templates', this.templates);
         await secretSauce.storage.updatePreference('activeTemplateId', this.activeTemplateId);
-        
+
         // Also update the legacy customPrompt for backward compatibility
         const active = this.templates.find(t => t.id === this.activeTemplateId);
         if (active) {
@@ -213,26 +223,26 @@ export class TemplatesView extends LitElement {
                     <div class="surface-title">${this.editingTemplate.name ? 'Edit Template' : 'New Template'}</div>
                     <div class="form-group vertical">
                         <label class="form-label">Template Name</label>
-                        <input 
-                            type="text" 
-                            class="control" 
+                        <input
+                            type="text"
+                            class="control"
                             style="width: 100%;"
                             .value=${this.editingTemplate.name}
-                            @input=${e => this.editingTemplate.name = e.target.value}
+                            @input=${e => (this.editingTemplate.name = e.target.value)}
                             placeholder="e.g. Frontend Interview"
-                        >
+                        />
                     </div>
                     <div class="form-group vertical">
                         <label class="form-label">System Instructions</label>
-                        <textarea 
-                            class="control" 
+                        <textarea
+                            class="control"
                             .value=${this.editingTemplate.content}
-                            @input=${e => this.editingTemplate.content = e.target.value}
+                            @input=${e => (this.editingTemplate.content = e.target.value)}
                             placeholder="Instructions for the AI..."
                         ></textarea>
                     </div>
                     <div class="editor-footer">
-                        <button class="btn btn-secondary" @click=${() => this.isEditing = false}>Cancel</button>
+                        <button class="btn btn-secondary" @click=${() => (this.isEditing = false)}>Cancel</button>
                         <button class="btn btn-primary" @click=${this.handleSaveEdit}>Save Template</button>
                     </div>
                 </div>
@@ -253,23 +263,53 @@ export class TemplatesView extends LitElement {
                     </div>
 
                     <div class="templates-grid">
-                        ${this.templates.map(t => html`
-                            <div class="template-card ${this.activeTemplateId === t.id ? 'active' : ''}" @click=${() => this.handleSelect(t.id)}>
-                                <div class="template-header">
-                                    <span class="template-name">${t.name}</span>
-                                    ${this.activeTemplateId === t.id ? html`<span class="chip" style="background: var(--accent); color: white;">Active</span>` : ''}
+                        ${this.templates.map(
+                            t => html`
+                                <div class="template-card ${this.activeTemplateId === t.id ? 'active' : ''}" @click=${() => this.handleSelect(t.id)}>
+                                    <div class="template-header">
+                                        <span class="template-name">${t.name}</span>
+                                        ${this.activeTemplateId === t.id
+                                            ? html`<span class="chip" style="background: var(--accent); color: white;">Active</span>`
+                                            : ''}
+                                    </div>
+                                    <div class="template-preview">${t.content}</div>
+                                    <div class="template-actions">
+                                        <button class="action-btn" title="Edit" @click=${e => this.handleEdit(e, t)}>
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                width="14"
+                                                height="14"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            >
+                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                            </svg>
+                                        </button>
+                                        <button class="action-btn delete" title="Delete" @click=${e => this.handleDelete(e, t.id)}>
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                width="14"
+                                                height="14"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            >
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="template-preview">${t.content}</div>
-                                <div class="template-actions">
-                                    <button class="action-btn" title="Edit" @click=${(e) => this.handleEdit(e, t)}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    </button>
-                                    <button class="action-btn delete" title="Delete" @click=${(e) => this.handleDelete(e, t.id)}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        `)}
+                            `
+                        )}
                     </div>
                 </div>
             </div>
