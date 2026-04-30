@@ -34,7 +34,7 @@ const INITIAL_SESSION_STATE = () => ({
     groqConversationHistory: [],
     profile: null,
     customPrompt: null,
-    systemPrompt: getSystemPrompt('interview'),
+    systemPrompt: null,
     isInitializing: false,
     // Provider
     providerMode: 'byok', // 'byok' | 'cloud' | 'local'
@@ -1145,6 +1145,20 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             logger.error('initialize-gemini error:', error);
         }
         return false;
+    });
+
+    ipcMain.handle('update-active-profile', async (event, profile, customPrompt) => {
+        try {
+            if (!isString(profile)) return { success: false, error: 'Invalid profile' };
+            state.profile = profile;
+            state.customPrompt = customPrompt || '';
+            state.systemPrompt = getSystemPrompt(profile, state.customPrompt);
+            logger.info('Active profile updated to:', profile);
+            return { success: true };
+        } catch (error) {
+            logger.error('Error updating active profile:', error);
+            return { success: false, error: error.message };
+        }
     });
 
     ipcMain.handle('initialize-local', async (event, ollamaHost, ollamaModel, whisperModel, profile, customPrompt) => {

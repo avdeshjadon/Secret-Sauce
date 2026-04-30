@@ -18,9 +18,9 @@ import { HelpView } from '../views/HelpView.js';
 import { HistoryView } from '../views/HistoryView.js';
 import { AssistantView } from '../views/AssistantView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
-import { TemplatesView } from '../views/TemplatesView.js';
 import { StatsView } from '../views/StatsView.js';
 import { ModelsView } from '../views/ModelsView.js';
+import { ProfilesView } from '../views/ProfilesView.js';
 
 export class SecretSauceApp extends LitElement {
     static styles = css`
@@ -173,6 +173,53 @@ export class SecretSauceApp extends LitElement {
         .nav-item:hover { color: var(--text-primary); background: var(--bg-hover); }
         .nav-item.active { color: var(--text-primary); background: var(--bg-elevated); }
         .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
+        
+        /* Active Profile Badge */
+        .active-profile-badge {
+            margin: 0 var(--space-sm) var(--space-md) var(--space-sm);
+            padding: 10px var(--space-md);
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            cursor: pointer;
+            transition: all var(--transition);
+            -webkit-app-region: no-drag;
+        }
+
+        .active-profile-badge:hover {
+            border-color: var(--accent);
+            background: var(--bg-elevated);
+            transform: translateY(-1px);
+        }
+
+        .active-profile-badge .dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent);
+        }
+
+        .active-profile-badge .name {
+            font-size: 12px;
+            font-weight: var(--font-weight-semibold);
+            color: var(--text-primary);
+            flex: 1;
+        }
+
+        .active-profile-badge .type-label {
+            font-size: 9px;
+            font-weight: var(--font-weight-bold);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: var(--bg-elevated);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
 
         .new-session-btn {
             margin: 0 var(--space-sm) var(--space-md) var(--space-sm);
@@ -642,6 +689,35 @@ export class SecretSauceApp extends LitElement {
         await window.electronAPI.invoke('open-external', url);
     }
 
+    _getProfileLabel(p) {
+        const labels = { interview: 'Interview', sales: 'Sales Call', meeting: 'Meeting', presentation: 'Presentation', negotiation: 'Negotiation', exam: 'Exam' };
+        return labels[p] || p;
+    }
+
+    _getProfileIcon(p) {
+        switch (p) {
+            case 'interview': return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+            case 'sales': return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="m17 5-5-3-5 3"/><path d="m17 19-5 3-5-3"/><path d="M2 12h20"/><path d="m7 7 5 5-5 5"/><path d="m17 7-5 5 5 5"/></svg>`;
+            case 'meeting': return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg>`;
+            case 'presentation': return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>`;
+            case 'negotiation': return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>`;
+            case 'exam': return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>`;
+            default: return html`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>`;
+        }
+    }
+
+    async _switchProfile(profile) {
+        if (this.selectedProfile === profile) return;
+        this.selectedProfile = profile;
+        await secretSauce.storage.updatePreference('selectedProfile', profile);
+        
+        // Inform main process to update system prompt on the fly
+        const prefs = await secretSauce.storage.getPreferences();
+        await window.electronAPI.invoke('update-active-profile', profile, prefs.customPrompt || '');
+        
+        this.requestUpdate();
+    }
+
     async handleSendText(message) {
         const result = await window.secretSauce.sendTextMessage(message);
         if (!result.success) {
@@ -701,9 +777,6 @@ export class SecretSauceApp extends LitElement {
                     ></main-view>
                 `;
 
-            case 'templates':
-                return html`<templates-view></templates-view>`;
-
             case 'stats':
                 return html`<stats-view></stats-view>`;
 
@@ -728,6 +801,16 @@ export class SecretSauceApp extends LitElement {
 
             case 'history':
                 return html`<history-view></history-view>`;
+
+            case 'profiles':
+                return html`
+                    <profiles-view 
+                        .selectedProfile=${this.selectedProfile}
+                        .onProfileChange=${p => this._switchProfile(p)}
+                        .getProfileIcon=${p => this._getProfileIcon(p)}
+                        .getProfileLabel=${p => this._getProfileLabel(p)}
+                    ></profiles-view>
+                `;
 
             case 'assistant':
                 return html`
@@ -755,8 +838,8 @@ export class SecretSauceApp extends LitElement {
         const items = [
             { id: 'main', label: 'Home', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="m19 8.71l-5.333-4.148a2.666 2.666 0 0 0-3.274 0L5.059 8.71a2.67 2.67 0 0 0-1.029 2.105v7.2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.2c0-.823-.38-1.6-1.03-2.105"/><path d="M16 15c-2.21 1.333-5.792 1.333-8 0"/></g></svg>` },
             { id: 'stats', label: 'Statistics', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></g></svg>` },
+            { id: 'profiles', label: 'Profiles', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>` },
             { id: 'history', label: 'History', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M10 20.777a9 9 0 0 1-2.48-.969M14 3.223a9.003 9.003 0 0 1 0 17.554m-9.421-3.684a9 9 0 0 1-1.227-2.592M3.124 10.5c.16-.95.468-1.85.9-2.675l.169-.305m2.714-2.941A9 9 0 0 1 10 3.223"/><path d="M12 8v4l3 3"/></g></svg>` },
-            { id: 'templates', label: 'Templates', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15h6"/><path d="M9 11h6"/></g></svg>` },
             { id: 'customize', label: 'Settings', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M19.875 6.27A2.23 2.23 0 0 1 21 8.218v7.284c0 .809-.443 1.555-1.158 1.948l-6.75 4.27a2.27 2.27 0 0 1-2.184 0l-6.75-4.27A2.23 2.23 0 0 1 3 15.502V8.217c0-.809.443-1.554 1.158-1.947l6.75-3.98a2.33 2.33 0 0 1 2.25 0l6.75 3.98z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0"/></g></svg>` },
             { id: 'help', label: 'Help', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M12 3c7.2 0 9 1.8 9 9s-1.8 9-9 9s-9-1.8-9-9s1.8-9 9-9m0 13v.01"/><path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483"/></g></svg>` },
         ];
@@ -768,6 +851,15 @@ export class SecretSauceApp extends LitElement {
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
                     New Session
                 </button>
+                
+                <div class="active-profile-badge" @click=${() => this.navigate('profiles')} title="Click to change profile">
+                    <div class="dot"></div>
+                    <div class="name">${this._getProfileLabel(this.selectedProfile)}</div>
+                    <div class="type-label">Profile</div>
+                </div>
+
+                <div class="nav-divider"></div>
+                
                 <nav class="sidebar-nav">
                     ${items.map(item => html`
                         <button class="nav-item ${this.currentView === item.id ? 'active' : ''}" @click=${() => this.navigate(item.id)} title=${item.label}>

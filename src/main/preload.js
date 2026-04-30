@@ -33,6 +33,7 @@ const VALID_INVOKE_CHANNELS = new Set([
     'download-whisper-model',
     'check-whisper-model-exists',
     'delete-whisper-model',
+    'update-active-profile',
 
     // Storage — Config
     'storage:get-config',

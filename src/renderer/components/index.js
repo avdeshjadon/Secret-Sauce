@@ -9,4 +9,5 @@ export { HelpView } from './views/HelpView.js';
 export { HistoryView } from './views/HistoryView.js';
 export { AssistantView } from './views/AssistantView.js';
 export { OnboardingView } from './views/OnboardingView.js';
+export { ProfilesView } from './views/ProfilesView.js';
 // NOTE: AdvancedView was removed; keep exports in sync with existing files.
