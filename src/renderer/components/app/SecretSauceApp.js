@@ -287,6 +287,43 @@ export class SecretSauceApp extends LitElement {
             background: var(--bg-app);
         }
 
+        /* Return to Session Button Styles */
+        .return-session-btn {
+            margin: 0 var(--space-sm) var(--space-md) var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: var(--radius-md);
+            color: var(--danger);
+            font-size: 11px;
+            font-weight: var(--font-weight-semibold);
+            cursor: pointer;
+            transition: all var(--transition);
+            animation: session-glow 2s infinite;
+        }
+
+        .return-session-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: var(--danger);
+        }
+
+        .session-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--danger);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--danger);
+        }
+
+        @keyframes session-glow {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
         .live-bar {
             position: relative;
             display: flex;
@@ -398,6 +435,7 @@ export class SecretSauceApp extends LitElement {
         _updateAvailable: { state: true },
         _whisperDownloading: { state: true },
         _sessionError: { state: true },
+        sidebarVisible: { type: Boolean, state: true },
     };
 
     constructor() {
@@ -412,6 +450,7 @@ export class SecretSauceApp extends LitElement {
         this.selectedScreenshotInterval = '5';
         this.selectedImageQuality = 'medium';
         this.layoutMode = 'normal';
+        this.sidebarVisible = false;
         this.responses = [];
         this.currentResponseIndex = -1;
         this._viewInstances = new Map();
@@ -567,24 +606,24 @@ export class SecretSauceApp extends LitElement {
     }
 
     async handleClose() {
-        if (this.currentView === 'assistant') {
-            secretSauce.stopCapture();
-            try {
-                await window.electronAPI.invoke('close-session');
-            } catch (e) {
-                console.error('close-session error:', e);
-            }
-            this.sessionActive = false;
-            this._sessionError = null;
-            this._stopTimer();
-            this.currentView = 'main';
-        } else {
-            try {
-                await window.electronAPI.invoke('quit-application');
-            } catch (e) {
-                console.error('quit error:', e);
-            }
+        try {
+            await window.electronAPI.invoke('quit-application');
+        } catch (e) {
+            console.error('quit error:', e);
         }
+    }
+
+    async handleCloseAssistant() {
+        secretSauce.stopCapture();
+        try {
+            await window.electronAPI.invoke('close-session');
+        } catch (e) {
+            console.error('close-session error:', e);
+        }
+        this.sessionActive = false;
+        this._sessionError = null;
+        this._stopTimer();
+        this.currentView = 'main';
     }
 
     async _handleMinimize() {
@@ -819,6 +858,7 @@ export class SecretSauceApp extends LitElement {
                         .currentResponseIndex=${this.currentResponseIndex}
                         .selectedProfile=${this.selectedProfile}
                         .onSendText=${msg => this.handleSendText(msg)}
+                        .onEndSession=${() => this.handleCloseAssistant()}
                         .shouldAnimateResponse=${this.shouldAnimateResponse}
                         @response-index-changed=${this.handleResponseIndexChanged}
                         @response-animation-complete=${() => {
@@ -845,8 +885,16 @@ export class SecretSauceApp extends LitElement {
         ];
 
         return html`
-            <div class="sidebar ${this._isLiveMode() ? 'hidden' : ''}">
+            <div class="sidebar ${this._isLiveMode() && !this.sidebarVisible ? 'hidden' : ''}">
                 <div class="sidebar-brand"><h1>Secret Sauce</h1></div>
+                
+                ${this.sessionActive && this.currentView !== 'assistant' ? html`
+                    <button class="return-session-btn" @click=${() => this.navigate('assistant')}>
+                        <div class="session-dot"></div>
+                        <span>Return to Live Session</span>
+                    </button>
+                ` : ''}
+
                 <button class="new-session-btn" @click=${() => this.navigate('main')}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
                     New Session
@@ -885,8 +933,11 @@ export class SecretSauceApp extends LitElement {
         return html`
             <div class="live-bar">
                 <div class="live-bar-left">
-                    <button class="live-bar-back" @click=${() => this.handleClose()} title="End session">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd"/></svg>
+                    <button class="live-bar-back" @click=${() => this.navigate('main')} title="Go to main menu">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <button class="live-bar-back" @click=${() => { this.sidebarVisible = !this.sidebarVisible; this.requestUpdate(); }} title="Toggle Sidebar">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
                     </button>
                 </div>
                 <div class="live-bar-center">${profileLabels[this.selectedProfile] || 'Session'}</div>

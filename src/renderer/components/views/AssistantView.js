@@ -360,6 +360,52 @@ export class AssistantView extends LitElement {
             animation: pulseGlow 3s ease-in-out infinite alternate;
         }
 
+        .end-session-btn {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+            cursor: pointer;
+            font-size: var(--font-size-xs);
+            font-family: var(--font-mono);
+            padding: var(--space-xs) var(--space-md);
+            border-radius: 100px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all var(--transition);
+        }
+
+        .end-session-btn:hover {
+            background: var(--danger);
+            color: white;
+            border-color: var(--danger);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .live-profile-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: 100px;
+            font-size: 10px;
+            color: var(--text-secondary);
+            font-weight: var(--font-weight-semibold);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .live-profile-badge .dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 5px var(--accent);
+        }
+
         .analyze-btn.analyzing .analyze-btn-content {
             animation: breatheText 2s ease-in-out infinite alternate;
         }
@@ -370,6 +416,24 @@ export class AssistantView extends LitElement {
             gap: 6px;
             z-index: 1;
             position: relative;
+        }
+
+        /* ── Audio Visualizer ── */
+        .visualizer-container {
+            height: 20px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            margin-bottom: -10px;
+            pointer-events: none;
+        }
+
+        #visualizer {
+            width: 120px;
+            height: 100%;
+            opacity: 0.6;
         }
 
         .spinner {
@@ -418,6 +482,7 @@ export class AssistantView extends LitElement {
         currentResponseIndex: { type: Number },
         selectedProfile: { type: String },
         onSendText: { type: Function },
+        onEndSession: { type: Function },
         shouldAnimateResponse: { type: Boolean },
         isAnalyzing: { type: Boolean, state: true },
     };
@@ -428,8 +493,11 @@ export class AssistantView extends LitElement {
         this.currentResponseIndex = -1;
         this.selectedProfile = 'interview';
         this.onSendText = () => {};
+        this.onEndSession = () => {};
         this.isAnalyzing = false;
         this._animFrame = null;
+        this._audioContext = null;
+        this._audioStream = null;
     }
 
     getProfileNames() {
@@ -602,10 +670,10 @@ export class AssistantView extends LitElement {
             })
         );
 
-        this.handleAnalysisComplete = () => {
-            this.isAnalyzing = false;
-        };
         window.addEventListener('manual-analysis-complete', this.handleAnalysisComplete);
+        
+        // Start visualizer after a short delay to ensure DOM is ready
+        setTimeout(() => this._initVisualizer(), 100);
     }
 
     disconnectedCallback() {
@@ -617,6 +685,14 @@ export class AssistantView extends LitElement {
 
         if (this.handleAnalysisComplete) {
             window.removeEventListener('manual-analysis-complete', this.handleAnalysisComplete);
+        }
+
+        if (this._animFrame) cancelAnimationFrame(this._animFrame);
+        if (this._audioStream) {
+            this._audioStream.getTracks().forEach(track => track.stop());
+        }
+        if (this._audioContext) {
+            this._audioContext.close();
         }
     }
 
@@ -700,6 +776,62 @@ export class AssistantView extends LitElement {
         }
     }
 
+    async _initVisualizer() {
+        try {
+            const canvas = this.shadowRoot.querySelector('#visualizer');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            // Set internal resolution
+            canvas.width = 120;
+            canvas.height = 20;
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this._audioStream = stream;
+            
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            this._audioContext = new AudioContext();
+            
+            const analyser = this._audioContext.createAnalyser();
+            const source = this._audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            
+            analyser.fftSize = 32;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            const draw = () => {
+                this._animFrame = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                const barWidth = 4;
+                const gap = 2;
+                const totalWidth = bufferLength * (barWidth + gap);
+                const startX = (canvas.width - totalWidth) / 2;
+                
+                ctx.fillStyle = getComputedStyle(this).getPropertyValue('--accent') || '#06b6d4';
+                
+                for (let i = 0; i < bufferLength; i++) {
+                    const value = dataArray[i];
+                    const percent = value / 255;
+                    const height = Math.max(2, percent * canvas.height);
+                    const y = (canvas.height - height) / 2;
+                    
+                    // Rounded bars
+                    ctx.beginPath();
+                    ctx.roundRect(startX + i * (barWidth + gap), y, barWidth, height, 2);
+                    ctx.fill();
+                }
+            };
+            
+            draw();
+        } catch (err) {
+            console.warn('Audio visualizer failed:', err);
+        }
+    }
+
     render() {
         const hasMultipleResponses = this.responses.length > 1;
 
@@ -742,10 +874,25 @@ export class AssistantView extends LitElement {
                   `
                 : ''}
 
+            <div class="visualizer-container">
+                <canvas id="visualizer"></canvas>
+            </div>
+
             <div class="input-bar">
+                <div class="live-profile-badge">
+                    <div class="dot"></div>
+                    <span>${this.getProfileNames()[this.selectedProfile]}</span>
+                </div>
+
                 <div class="input-bar-inner">
                     <input type="text" id="textInput" placeholder="Type a message..." @keydown=${this.handleTextKeydown} />
                 </div>
+
+                <button class="end-session-btn" @click=${this.onEndSession} title="End current session">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                    End
+                </button>
+
                 <button class="analyze-btn ${this.isAnalyzing ? 'analyzing' : ''}" @click=${this.handleScreenAnswer}>
                     <div class="analyze-glow"></div>
                     <div class="analyze-shimmer"></div>

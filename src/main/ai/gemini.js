@@ -365,29 +365,6 @@ async function generateSessionSummary() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fix #9 + Fix (getStoredSetting):
-// Read Google Search setting from storage (main process) — not from renderer
-// localStorage via executeJavaScript. That approach was fragile and insecure.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getEnabledTools() {
-    try {
-        const prefs = getPreferences();
-        const googleSearchEnabled = prefs.googleSearchEnabled === true || prefs.googleSearchEnabled === 'true';
-        logger.info('Google Search enabled:', googleSearchEnabled);
-
-        if (googleSearchEnabled) {
-            logger.info('Added Google Search tool');
-            return [{ googleSearch: {} }];
-        }
-    } catch (error) {
-        logger.error('Error reading preferences for tools:', error);
-    }
-    logger.info('Google Search tool disabled');
-    return [];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Provider helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -678,10 +655,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         httpOptions: { apiVersion: 'v1alpha' },
     });
 
-    // Fix: read from storage, not from renderer localStorage
-    const enabledTools = getEnabledTools();
-    const googleSearchEnabled = enabledTools.some(t => t.googleSearch);
-    const systemPrompt = getSystemPrompt(profile, customPrompt, googleSearchEnabled);
+    const systemPrompt = getSystemPrompt(profile, customPrompt);
     state.systemPrompt = systemPrompt;
 
     if (!isReconnect) {
@@ -809,7 +783,6 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 responseModalities: [Modality.AUDIO],
                 proactivity: { proactiveAudio: true },
                 outputAudioTranscription: {},
-                tools: enabledTools,
                 inputAudioTranscription: {
                     enabled: !isUsingWhisper, // Enable if not using local Whisper
                     enableSpeakerDiarization: !isUsingWhisper,
@@ -1396,20 +1369,10 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         }
     });
 
-    ipcMain.handle('update-google-search-setting', async (event, enabled) => {
-        try {
-            logger.info('Google Search setting updated to:', enabled);
-            return { success: true };
-        } catch (error) {
-            logger.error('Error updating Google Search setting:', error);
-            return { success: false, error: error.message };
-        }
-    });
 }
 
 module.exports = {
     initializeGeminiSession,
-    getEnabledTools,
     sendToRenderer,
     handleLocalTranscription,
     initializeNewSession,

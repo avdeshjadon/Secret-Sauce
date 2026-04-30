@@ -28,7 +28,6 @@ const VALID_INVOKE_CHANNELS = new Set([
     'stop-macos-audio',
     'get-current-session',
     'start-new-session',
-    'update-google-search-setting',
     'get-desktop-sources',
     'download-whisper-model',
     'check-whisper-model-exists',

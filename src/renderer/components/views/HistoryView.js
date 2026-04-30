@@ -434,9 +434,39 @@ export class HistoryView extends LitElement {
         const q = this.searchQuery.toLowerCase();
         return this.sessions.filter(session => {
             const preview = this.getSessionPreview(session).toLowerCase();
-            const date = this.formatDate(session.createdAt).toLowerCase();
-            return preview.includes(q) || date.includes(q);
+            const dateStr = this.formatDate(session.createdAt).toLowerCase();
+            const profile = this._getProfileLabel(session).toLowerCase();
+            return preview.includes(q) || dateStr.includes(q) || profile.includes(q);
         });
+    }
+
+    groupSessionsByDate(sessions) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        const groups = {
+            today: [],
+            yesterday: [],
+            older: []
+        };
+
+        sessions.forEach(session => {
+            const date = new Date(session.createdAt);
+            date.setHours(0, 0, 0, 0);
+
+            if (date.getTime() === today.getTime()) {
+                groups.today.push(session);
+            } else if (date.getTime() === yesterday.getTime()) {
+                groups.yesterday.push(session);
+            } else {
+                groups.older.push(session);
+            }
+        });
+
+        return groups;
     }
 
     collectConversation(session) {
@@ -557,46 +587,49 @@ export class HistoryView extends LitElement {
                     ${!this.loading && filteredSessions.length === 0
                         ? html`<div class="empty" style="margin:var(--space-md);">No matching sessions.</div>`
                         : ''}
-                    ${!this.loading
-                        ? filteredSessions.map(
-                              session => html`
-                                  <div class="session-card" @click=${() => this.openSession(session.sessionId)} role="button" tabindex="0">
-                                      <div class="session-left">
-                                          <span class="session-profile">${this._getProfileLabel(session)}</span>
-                                          <span class="session-date"
-                                              >${this.formatDate(session.createdAt)} · ${this.formatTime(session.createdAt)}</span
-                                          >
-                                      </div>
-                                      <div style="display: flex; align-items: center; gap: 8px;">
-                                          ${session.messageCount > 0 ? html`<span class="session-badge">${session.messageCount}</span>` : ''}
-                                          <button
-                                              class="delete-btn"
-                                              title="Delete session"
-                                              @click=${e => this.handleDeleteSession(e, session.sessionId)}
-                                          >
-                                              <svg
-                                                  xmlns="http://www.w3.org/2000/svg"
-                                                  width="14"
-                                                  height="14"
-                                                  viewBox="0 0 24 24"
-                                                  fill="none"
-                                                  stroke="currentColor"
-                                                  stroke-width="2"
-                                                  stroke-linecap="round"
-                                                  stroke-linejoin="round"
-                                              >
-                                                  <path d="M3 6h18"></path>
-                                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                                              </svg>
-                                          </button>
-                                      </div>
-                                  </div>
-                              `
-                          )
-                        : ''}
+                    
+                    ${!this.loading && filteredSessions.length > 0 ? (() => {
+                        const groups = this.groupSessionsByDate(filteredSessions);
+                        return html`
+                            ${groups.today.length > 0 ? html`
+                                <div style="padding: 12px 16px 4px; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Today</div>
+                                ${groups.today.map(s => this.renderSessionCard(s))}
+                            ` : ''}
+                            
+                            ${groups.yesterday.length > 0 ? html`
+                                <div style="padding: 16px 16px 4px; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Yesterday</div>
+                                ${groups.yesterday.map(s => this.renderSessionCard(s))}
+                            ` : ''}
+                            
+                            ${groups.older.length > 0 ? html`
+                                <div style="padding: 16px 16px 4px; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Older</div>
+                                ${groups.older.map(s => this.renderSessionCard(s))}
+                            ` : ''}
+                        `;
+                    })() : ''}
                 </div>
             </section>
+        `;
+    }
+
+    renderSessionCard(session) {
+        return html`
+            <div class="session-card" @click=${() => this.openSession(session.sessionId)} role="button" tabindex="0">
+                <div class="session-left">
+                    <span class="session-profile">${this._getProfileLabel(session)}</span>
+                    <span class="session-date">${this.formatTime(session.createdAt)}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    ${session.messageCount > 0 ? html`<span class="session-badge">${session.messageCount} msg</span>` : ''}
+                    <button
+                        class="delete-btn"
+                        title="Delete session"
+                        @click=${e => this.handleDeleteSession(e, session.sessionId)}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </div>
         `;
     }
 

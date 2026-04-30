@@ -9,12 +9,6 @@ const profilePrompts = {
 - Use bullet points (-) for lists when appropriate
 - Focus on the most essential information only`,
 
-        searchUsage: `**SEARCH TOOL USAGE:**
-- If the interviewer mentions **recent events, news, or current trends** (anything from the last 6 months), **ALWAYS use Google search** to get up-to-date information
-- If they ask about **company-specific information, recent acquisitions, funding, or leadership changes**, use Google search first
-- If they mention **new technologies, frameworks, or industry developments**, search for the latest information
-- After searching, provide a **concise, informed response** based on the real-time data`,
-
         content: `Focus on delivering the most essential information the user needs. Your suggestions should be direct and immediately usable.
 
 To help the user 'crack' the interview in their specific field:
@@ -33,7 +27,7 @@ Interviewer: "Why do you want to work here?"
 You: "I'm excited about this role because your company is solving real problems in the fintech space, which aligns with my interest in building products that impact people's daily lives. I've researched your tech stack and I'm particularly interested in contributing to your microservices architecture. Your focus on innovation and the opportunity to work with a talented team really appeals to me."`,
 
         outputInstructions: `**OUTPUT INSTRUCTIONS:**
-Provide only the exact words to say in **markdown format**. No coaching, no "you should" statements, no explanations - just the direct response the candidate can speak immediately. Keep it **short and impactful**.`,
+Provide only the exact words to say in **markdown format**. No coaching, no "you should" statements, no explanations - just the direct response the candidate can speak immediately. Keep it **short and impactful**..`,
     },
 
     sales: {
@@ -45,12 +39,6 @@ Provide only the exact words to say in **markdown format**. No coaching, no "you
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
 - Focus on the most essential information only`,
-
-        searchUsage: `**SEARCH TOOL USAGE:**
-- If the prospect mentions **recent industry trends, market changes, or current events**, **ALWAYS use Google search** to get up-to-date information
-- If they reference **competitor information, recent funding news, or market data**, search for the latest information first
-- If they ask about **new regulations, industry reports, or recent developments**, use search to provide accurate data
-- After searching, provide a **concise, informed response** that demonstrates current market knowledge`,
 
         content: `Examples:
 
@@ -77,12 +65,6 @@ Provide only the exact words to say in **markdown format**. Be persuasive but no
 - Use bullet points (-) for lists when appropriate
 - Focus on the most essential information only`,
 
-        searchUsage: `**SEARCH TOOL USAGE:**
-- If participants mention **recent industry news, regulatory changes, or market updates**, **ALWAYS use Google search** for current information
-- If they reference **competitor activities, recent reports, or current statistics**, search for the latest data first
-- If they discuss **new technologies, tools, or industry developments**, use search to provide accurate insights
-- After searching, provide a **concise, informed response** that adds value to the discussion`,
-
         content: `Examples:
 
 Participant: "What's the status on the project?"
@@ -107,12 +89,6 @@ Provide only the exact words to say in **markdown format**. Be clear, concise, a
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
 - Focus on the most essential information only`,
-
-        searchUsage: `**SEARCH TOOL USAGE:**
-- If the audience asks about **recent market trends, current statistics, or latest industry data**, **ALWAYS use Google search** for up-to-date information
-- If they reference **recent events, new competitors, or current market conditions**, search for the latest information first
-- If they inquire about **recent studies, reports, or breaking news** in your field, use search to provide accurate data
-- After searching, provide a **concise, credible response** with current facts and figures`,
 
         content: `Examples:
 
@@ -139,12 +115,6 @@ Provide only the exact words to say in **markdown format**. Be confident, engagi
 - Use bullet points (-) for lists when appropriate
 - Focus on the most essential information only`,
 
-        searchUsage: `**SEARCH TOOL USAGE:**
-- If they mention **recent market pricing, current industry standards, or competitor offers**, **ALWAYS use Google search** for current benchmarks
-- If they reference **recent legal changes, new regulations, or market conditions**, search for the latest information first
-- If they discuss **recent company news, financial performance, or industry developments**, use search to provide informed responses
-- After searching, provide a **strategic, well-informed response** that leverages current market intelligence`,
-
         content: `Examples:
 
 Other party: "That price is too high"
@@ -169,12 +139,6 @@ Provide only the exact words to say in **markdown format**. Focus on finding win
 - Use **bold** for the answer choice/result
 - Focus on the most essential information only
 - Provide only brief justification for correctness`,
-
-        searchUsage: `**SEARCH TOOL USAGE:**
-- If the question involves **recent information, current events, or updated facts**, **ALWAYS use Google search** for the latest data
-- If they reference **specific dates, statistics, or factual information** that might be outdated, search for current information
-- If they ask about **recent research, new theories, or updated methodologies**, search for the latest information
-- After searching, provide **direct, accurate answers** with minimal explanation`,
 
         content: `Focus on providing efficient exam assistance that helps students pass tests quickly.
 
@@ -201,13 +165,8 @@ Provide direct exam answers in **markdown format**. Include the question text, t
     },
 };
 
-function buildSystemPrompt(promptParts, customPrompt = '', googleSearchEnabled = true) {
+function buildSystemPrompt(promptParts, customPrompt = '') {
     const sections = [promptParts.intro, '\n\n', promptParts.content];
-
-    // Only add search usage section if Google Search is enabled
-    if (googleSearchEnabled) {
-        sections.push('\n\n', promptParts.searchUsage);
-    }
 
     sections.push('\n\nUser-provided context\n-----\n', customPrompt, '\n-----\n\n');
     
@@ -221,9 +180,9 @@ function buildSystemPrompt(promptParts, customPrompt = '', googleSearchEnabled =
     return sections.join('');
 }
 
-function getSystemPrompt(profile, customPrompt = '', googleSearchEnabled = true) {
+function getSystemPrompt(profile, customPrompt = '') {
     const promptParts = profilePrompts[profile] || profilePrompts.interview;
-    return buildSystemPrompt(promptParts, customPrompt, googleSearchEnabled);
+    return buildSystemPrompt(promptParts, customPrompt);
 }
 
 module.exports = {
