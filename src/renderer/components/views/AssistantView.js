@@ -552,11 +552,17 @@ export class AssistantView extends LitElement {
             this.handleNextResponse = () => this.navigateToNextResponse();
             this.handleScrollUp = () => this.scrollResponseUp();
             this.handleScrollDown = () => this.scrollResponseDown();
+            this.handleNextStep = () => {
+                if (this.handleScreenAnswer) {
+                    this.handleScreenAnswer();
+                }
+            };
 
             ipcRenderer.on('navigate-previous-response', this.handlePreviousResponse);
             ipcRenderer.on('navigate-next-response', this.handleNextResponse);
             ipcRenderer.on('scroll-response-up', this.handleScrollUp);
             ipcRenderer.on('scroll-response-down', this.handleScrollDown);
+            ipcRenderer.on('trigger-next-step', this.handleNextStep);
         }
 
         this.handleAnalysisComplete = () => {
@@ -574,6 +580,7 @@ export class AssistantView extends LitElement {
             if (this.handleNextResponse) ipcRenderer.removeListener('navigate-next-response', this.handleNextResponse);
             if (this.handleScrollUp) ipcRenderer.removeListener('scroll-response-up', this.handleScrollUp);
             if (this.handleScrollDown) ipcRenderer.removeListener('scroll-response-down', this.handleScrollDown);
+            if (this.handleNextStep) ipcRenderer.removeListener('trigger-next-step', this.handleNextStep);
         }
 
         if (this.handleAnalysisComplete) {

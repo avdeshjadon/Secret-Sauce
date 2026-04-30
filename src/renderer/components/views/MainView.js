@@ -528,7 +528,7 @@ export class MainView extends LitElement {
 
         this._mode = 'byok';
         this._token = '';
-        this._geminiKey = '';
+        // this._geminiKey = '';
         this._groqKey = '';
         this._tokenError = false;
         this._keyError = false;
@@ -542,7 +542,6 @@ export class MainView extends LitElement {
         this._mouseX = -1;
         this._mouseY = -1;
 
-        this.boundKeydownHandler = this._handleKeydown.bind(this);
         this._loadFromStorage();
     }
 
@@ -575,12 +574,21 @@ export class MainView extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        document.addEventListener('keydown', this.boundKeydownHandler);
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            this.handleNextStep = () => {
+                this._handleStart();
+            };
+            ipcRenderer.on('trigger-next-step', this.handleNextStep);
+        }
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        document.removeEventListener('keydown', this.boundKeydownHandler);
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            if (this.handleNextStep) ipcRenderer.removeListener('trigger-next-step', this.handleNextStep);
+        }
         if (this._animId) cancelAnimationFrame(this._animId);
     }
 
@@ -687,14 +695,6 @@ export class MainView extends LitElement {
         };
 
         draw();
-    }
-
-    _handleKeydown(e) {
-        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        if ((isMac ? e.metaKey : e.ctrlKey) && e.key === 'Enter') {
-            e.preventDefault();
-            this._handleStart();
-        }
     }
 
     // ── Persistence ──

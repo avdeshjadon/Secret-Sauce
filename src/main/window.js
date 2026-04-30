@@ -114,11 +114,7 @@ function createWindow(sendToRenderer, geminiSessionRef) {
 
     // After window is created, initialize keybinds
     const savedKeybinds = storage.getKeybinds();
-    if (savedKeybinds) {
-        setupGlobalShortcuts(savedKeybinds, mainWindow, sendToRenderer, geminiSessionRef);
-    } else {
-        setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef);
-    }
+    setupGlobalShortcuts(savedKeybinds, mainWindow, sendToRenderer, geminiSessionRef);
 
     mainWindow.on('moved', () => {
         const bounds = mainWindow.getBounds();
@@ -128,95 +124,106 @@ function createWindow(sendToRenderer, geminiSessionRef) {
     return mainWindow;
 }
 
-function setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef) {
-    const isMac = process.platform === 'darwin';
-    const modifier = isMac ? 'Command' : 'Control';
+function setupGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef) {
+    globalShortcut.unregisterAll();
 
-    // Toggle click-through / mouse-ignore mode
-    globalShortcut.register(`${modifier}+M`, () => {
+    const isMac = process.platform === 'darwin';
+
+    if (!keybinds) {
+        keybinds = {
+            mac_moveUp: 'Option+Up',
+            win_moveUp: 'Ctrl+Up',
+            mac_moveDown: 'Option+Down',
+            win_moveDown: 'Ctrl+Down',
+            mac_moveLeft: 'Option+Left',
+            win_moveLeft: 'Ctrl+Left',
+            mac_moveRight: 'Option+Right',
+            win_moveRight: 'Ctrl+Right',
+            mac_toggleVisibility: 'Cmd+\\',
+            win_toggleVisibility: 'Ctrl+\\',
+            mac_toggleClickThrough: 'Cmd+M',
+            win_toggleClickThrough: 'Ctrl+M',
+            mac_nextStep: 'Cmd+Enter',
+            win_nextStep: 'Ctrl+Enter',
+            mac_previousResponse: 'Cmd+[',
+            win_previousResponse: 'Ctrl+[',
+            mac_nextResponse: 'Cmd+]',
+            win_nextResponse: 'Ctrl+]',
+            mac_scrollUp: 'Cmd+Shift+Up',
+            win_scrollUp: 'Ctrl+Shift+Up',
+            mac_scrollDown: 'Cmd+Shift+Down',
+            win_scrollDown: 'Ctrl+Shift+Down'
+        };
+    }
+
+    const prefix = isMac ? 'mac_' : 'win_';
+    const getBind = (name) => keybinds[prefix + name] || keybinds[name] || null;
+
+    const registerBind = (bind, action) => {
+        if (!bind) return;
+        try {
+            globalShortcut.register(bind, action);
+        } catch (err) {
+            logger.error(`Failed to register shortcut ${bind}:`, err);
+        }
+    };
+
+    const toggleClickThrough = getBind('toggleClickThrough') || getBind('clickThrough');
+    registerBind(toggleClickThrough, () => {
         mouseEventsIgnored = !mouseEventsIgnored;
         mainWindow.setIgnoreMouseEvents(mouseEventsIgnored, { forward: true });
         sendToRenderer('shortcut-triggered', { action: 'toggle-click-through', value: mouseEventsIgnored });
     });
 
-    // Move window left
-    globalShortcut.register(`${modifier}+Left`, () => {
+    registerBind(getBind('moveLeft'), () => {
         const bounds = mainWindow.getBounds();
         mainWindow.setBounds({ ...bounds, x: Math.max(0, bounds.x - 50) });
     });
 
-    // Move window right
-    globalShortcut.register(`${modifier}+Right`, () => {
+    registerBind(getBind('moveRight'), () => {
         const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
         const bounds = mainWindow.getBounds();
         mainWindow.setBounds({ ...bounds, x: Math.min(screenWidth - bounds.width, bounds.x + 50) });
     });
 
-    // Move window up
-    globalShortcut.register(`${modifier}+Up`, () => {
+    registerBind(getBind('moveUp'), () => {
         const bounds = mainWindow.getBounds();
         mainWindow.setBounds({ ...bounds, y: Math.max(0, bounds.y - 50) });
     });
 
-    // Move window down
-    globalShortcut.register(`${modifier}+Down`, () => {
+    registerBind(getBind('moveDown'), () => {
         const { height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
         const bounds = mainWindow.getBounds();
         mainWindow.setBounds({ ...bounds, y: Math.min(screenHeight - bounds.height, bounds.y + 50) });
     });
-}
 
-function setupGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef) {
-    globalShortcut.unregisterAll();
-
-    if (!keybinds) {
-        setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef);
-        return;
-    }
-
-    try {
-        if (keybinds.clickThrough) {
-            globalShortcut.register(keybinds.clickThrough, () => {
-                mouseEventsIgnored = !mouseEventsIgnored;
-                mainWindow.setIgnoreMouseEvents(mouseEventsIgnored, { forward: true });
-                sendToRenderer('shortcut-triggered', { action: 'toggle-click-through', value: mouseEventsIgnored });
-            });
+    registerBind(getBind('toggleVisibility'), () => {
+        if (mainWindow.isVisible()) {
+            mainWindow.hide();
+        } else {
+            mainWindow.show();
         }
+    });
 
-        if (keybinds.moveLeft) {
-            globalShortcut.register(keybinds.moveLeft, () => {
-                const bounds = mainWindow.getBounds();
-                mainWindow.setBounds({ ...bounds, x: Math.max(0, bounds.x - 50) });
-            });
-        }
+    registerBind(getBind('nextStep'), () => {
+        sendToRenderer('trigger-next-step');
+    });
 
-        if (keybinds.moveRight) {
-            globalShortcut.register(keybinds.moveRight, () => {
-                const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
-                const bounds = mainWindow.getBounds();
-                mainWindow.setBounds({ ...bounds, x: Math.min(screenWidth - bounds.width, bounds.x + 50) });
-            });
-        }
+    registerBind(getBind('previousResponse'), () => {
+        sendToRenderer('navigate-previous-response');
+    });
 
-        if (keybinds.moveUp) {
-            globalShortcut.register(keybinds.moveUp, () => {
-                const bounds = mainWindow.getBounds();
-                mainWindow.setBounds({ ...bounds, y: Math.max(0, bounds.y - 50) });
-            });
-        }
+    registerBind(getBind('nextResponse'), () => {
+        sendToRenderer('navigate-next-response');
+    });
 
-        if (keybinds.moveDown) {
-            globalShortcut.register(keybinds.moveDown, () => {
-                const { height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
-                const bounds = mainWindow.getBounds();
-                mainWindow.setBounds({ ...bounds, y: Math.min(screenHeight - bounds.height, bounds.y + 50) });
-            });
-        }
-    } catch (error) {
-        logger.error('Error registering global shortcuts:', error);
-        // Fall back to defaults if custom keybinds fail
-        setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef);
-    }
+    registerBind(getBind('scrollUp'), () => {
+        sendToRenderer('scroll-response-up');
+    });
+
+    registerBind(getBind('scrollDown'), () => {
+        sendToRenderer('scroll-response-down');
+    });
 }
 
 function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef) {
