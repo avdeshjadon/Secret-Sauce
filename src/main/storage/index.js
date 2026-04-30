@@ -27,12 +27,15 @@ const DEFAULT_PREFERENCES = {
     selectedImageQuality: 'medium',
     advancedMode: false,
     audioMode: 'speaker_only',
-    fontSize: 'medium',
+    fontSize: 20,
     backgroundTransparency: 0.8,
     googleSearchEnabled: false,
     ollamaHost: 'http://127.0.0.1:11434',
     ollamaModel: 'llama3.1',
-    whisperModel: 'Xenova/whisper-small',
+    whisperModel: 'tiny.en',
+    whisperEngine: 'cpp',
+    whisperModelPath: '',
+    transcriptionEngine: 'gemini', // 'whisper' | 'gemini'
 };
 
 const DEFAULT_KEYBINDS = null; // null means use system defaults
@@ -132,7 +135,6 @@ function decryptString(encryptedStr) {
         return safeStorage.decryptString(buffer);
     } catch (error) {
         // If decryption fails, it might be plain text from an older version
-        logger.warn('Decryption failed, returning original string (might be legacy plain text)');
         return encryptedStr;
     }
 }
@@ -184,6 +186,17 @@ function initializeStorage() {
         const historyDir = getHistoryDir();
         if (!fs.existsSync(historyDir)) {
             fs.mkdirSync(historyDir, { recursive: true });
+        }
+        
+        // Migration/Sanity Check: Force tiny.en as the default for new/existing users who are on old defaults
+        const prefs = getPreferences();
+        const oldDefaults = ['medium.en', 'small.en', 'base.en', 'Xenova/whisper-small'];
+        
+        if (!prefs.whisperModel || oldDefaults.includes(prefs.whisperModel)) {
+            updatePreference('whisperModel', 'tiny.en');
+            // Also reset path to let localai recalculate it correctly
+            updatePreference('whisperModelPath', ''); 
+            logger.info('Migrated whisper model to tiny.en (standardized default)');
         }
     }
 }

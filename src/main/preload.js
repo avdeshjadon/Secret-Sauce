@@ -30,6 +30,9 @@ const VALID_INVOKE_CHANNELS = new Set([
     'start-new-session',
     'update-google-search-setting',
     'get-desktop-sources',
+    'download-whisper-model',
+    'check-whisper-model-exists',
+    'delete-whisper-model',
 
     // Storage — Config
     'storage:get-config',
@@ -89,6 +92,7 @@ const VALID_ON_CHANNELS = new Set([
     'save-session-context',
     'window-moved',
     'shortcut-triggered',
+    'whisper-download-progress',
 ]);
 
 // ─────────────────────────────────────────────

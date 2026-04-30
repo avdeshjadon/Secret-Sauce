@@ -89,7 +89,6 @@ uses Electron. Key goals are:
 
 ### TODO
 
-1. Research and prototype local transcription using `whisper.cpp`.
 2. Add dual‑stream audio capture logic for cross‑platform support.
 3. Investigate speaker diarization options and integrate when feasible.
 4. Plan a migration path toward a proper testing setup (Jest or similar).

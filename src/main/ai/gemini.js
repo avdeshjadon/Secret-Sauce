@@ -44,6 +44,9 @@ const INITIAL_SESSION_STATE = () => ({
     // Audio
     systemAudioProc: null,
     messageBuffer: '',
+    isAiStreaming: false,
+    isUserStreaming: false,
+    userStreamTimeout: null,
 });
 
 let state = INITIAL_SESSION_STATE();
@@ -61,6 +64,28 @@ function sendToRenderer(channel, data) {
         windows[0].webContents.send(channel, data);
     }
 }
+
+// ── Transcription Handler ──
+
+ipcMain.on('transcription-ready', async (event, text) => {
+    logger.info('[Gemini] Received local transcription:', text);
+    if (!text || text.trim() === '') return;
+
+    if (state.providerMode === 'byok') {
+        if (global.geminiSessionRef && global.geminiSessionRef.current) {
+            try {
+                logger.info('[Gemini] Sending transcription to Gemini Live...');
+                await global.geminiSessionRef.current.sendRealtimeInput({ text });
+            } catch (error) {
+                logger.error('[Gemini] Error sending text to Gemini Live:', error);
+            }
+        } else if (hasGroqKey()) {
+            sendToGroq(text);
+        } else {
+            sendToGemma(text);
+        }
+    }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Speaker diarization
@@ -114,7 +139,12 @@ function saveConversationTurn(transcription, aiResponse) {
     };
 
     state.conversationHistory.push(turn);
-    logger.info('Saved conversation turn:', turn);
+    
+    // Improved terminal logging for conversation turns - Data-centric look
+    process.stdout.write('\r\x1b[K'); // Clear current line
+    console.log(`\n\x1b[34m[USER]\x1b[0m : ${turn.transcription}`);
+    console.log(`\x1b[32m[AI]\x1b[0m   : ${turn.ai_response}\n`);
+    console.log('\x1b[90m' + '-'.repeat(60) + '\x1b[0m');
 
     sendToRenderer('save-conversation-turn', {
         sessionId: state.sessionId,
@@ -136,7 +166,11 @@ function saveScreenAnalysis(prompt, response, model) {
     };
 
     state.screenAnalysisHistory.push(entry);
-    logger.info('Saved screen analysis:', entry);
+    
+    // Improved terminal logging for screen analysis
+    process.stdout.write('\r\x1b[K'); // Clear current line
+    console.log(`\n\x1b[35m[SCREEN ANALYSIS]:\x1b[0m ${entry.prompt}`);
+    console.log(`\x1b[32m[RESULT]:\x1b[0m ${entry.response}\n`);
 
     sendToRenderer('save-screen-analysis', {
         sessionId: state.sessionId,
@@ -319,33 +353,42 @@ async function sendToGroq(transcription) {
         let fullText = '';
         let isFirst = true;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        state.isAiStreaming = true; // Silence wave during Groq response
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n').filter(l => l.trim() !== '');
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n').filter(l => l.trim() !== '');
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') continue;
-                    try {
-                        const json = JSON.parse(data);
-                        const token = json.choices?.[0]?.delta?.content || '';
-                        if (token) {
-                            fullText += token;
-                            const displayText = stripThinkingTags(fullText);
-                            if (displayText) {
-                                sendToRenderer(isFirst ? 'new-response' : 'update-response', displayText);
-                                isFirst = false;
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+                        try {
+                            const json = JSON.parse(data);
+                            const token = json.choices?.[0]?.delta?.content || '';
+                            if (token) {
+                                fullText += token;
+                                const displayText = stripThinkingTags(fullText);
+                                if (displayText) {
+                                    sendToRenderer(isFirst ? 'new-response' : 'update-response', displayText);
+                                    
+                                    // Real-time terminal chunk logging
+                                    console.log(`\x1b[32m[AI] <\x1b[0m ${token.trim()}`);
+                                    
+                                    isFirst = false;
+                                }
                             }
+                        } catch (e) {
+                            // Ignore partial JSON
                         }
-                    } catch {
-                        // Skip invalid JSON chunks
                     }
                 }
             }
+        } finally {
+            state.isAiStreaming = false; // Reset flag
         }
 
         const cleanedResponse = stripThinkingTags(fullText);
@@ -409,13 +452,22 @@ async function sendToGemma(transcription) {
         let fullText = '';
         let isFirst = true;
 
-        for await (const chunk of response) {
-            const chunkText = chunk.text;
-            if (chunkText) {
-                fullText += chunkText;
-                sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
-                isFirst = false;
+        state.isAiStreaming = true; // Silence wave during Gemma response
+        try {
+            for await (const chunk of response) {
+                const chunkText = chunk.text;
+                if (chunkText) {
+                    fullText += chunkText;
+                    sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
+                    
+                    // Real-time terminal chunk logging
+                    console.log(`\x1b[32m[AI] <\x1b[0m ${chunkText.trim()}`);
+                    
+                    isFirst = false;
+                }
             }
+        } finally {
+            state.isAiStreaming = false; // Reset flag
         }
 
         const systemPromptChars = systemPrompt.length;
@@ -433,8 +485,50 @@ async function sendToGemma(transcription) {
         logger.info('Gemma response completed');
         sendToRenderer('update-status', 'Listening...');
     } catch (error) {
-        logger.error('Error calling Gemma API:', error);
-        sendToRenderer('update-status', 'Gemma error: ' + error.message);
+        if (error.message.includes('503') || error.message.includes('UNAVAILABLE')) {
+            console.log('\x1b[33m%s\x1b[0m', `[RETRY] Gemma Busy. Falling back to Gemini 1.5 Flash for speed...`);
+            state.isAiStreaming = true; // Silence wave during Flash response
+            try {
+                const ai = new GoogleGenAI({ apiKey });
+                const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const result = await model.generateContentStream(transcription);
+                
+                let fullText = '';
+                let isFirst = true;
+                for await (const chunk of result.stream) {
+                    const chunkText = chunk.text();
+                    if (chunkText) {
+                        fullText += chunkText;
+                        sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
+                        
+                        // Real-time terminal chunk logging
+                        console.log(`\x1b[32m[AI] <\x1b[0m ${chunkText.trim()}`);
+                        
+                        isFirst = false;
+                    }
+                }
+                if (fullText.trim()) {
+                    state.conversationHistory.push({ role: 'assistant', content: fullText.trim() });
+                    saveConversationTurn(transcription, fullText);
+                }
+                return;
+            } catch (fallbackError) {
+                logger.error('Double failure (Gemma + Gemini Flash):', fallbackError);
+            } finally {
+                state.isAiStreaming = false; // Reset flag
+            }
+        }
+
+        console.log('\x1b[33m%s\x1b[0m', `[FALLBACK] Gemma Cloud failed: ${error.message}. Trying Local Ollama...`);
+        
+        // Attempt fallback to Local AI (Ollama) if available
+        const localAi = require('./localai');
+        if (localAi.isLocalSessionActive()) {
+            await localAi.sendLocalText(transcription);
+        } else {
+            logger.error('Error calling Gemma API and no local fallback available:', error);
+            sendToRenderer('update-status', 'Gemma error: ' + error.message);
+        }
     }
 }
 
@@ -472,6 +566,27 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         initializeNewSession(profile, customPrompt);
     }
 
+    // Initialize transcription engine
+    const prefs = getPreferences();
+    const engineToUse = prefs.transcriptionEngine || 'gemini';
+    let isUsingWhisper = false;
+
+    console.log('\n' + '='.repeat(60));
+    if (engineToUse === 'whisper') {
+        logger.info(`[ENGINE] >>> USING LOCAL WHISPER (PRIVATE) <<< Model: ${prefs.whisperModel}`);
+        const whisperSuccess = await getLocalAi().initializeLocalSession(null, null, prefs.whisperModel, profile, customPrompt);
+        if (whisperSuccess) {
+            isUsingWhisper = true;
+        } else {
+            console.log('\x1b[33m%s\x1b[0m', `[FALLBACK] Failed to start Whisper! Falling back to Gemini Internal...`);
+            logger.warn('[Gemini] Failed to initialize local Whisper, falling back to Gemini internal transcription');
+        }
+    } else {
+        logger.info('[ENGINE] >>> USING GEMINI CLOUD TRANSCRIPTION (FASTEST) <<<');
+        isUsingWhisper = false;
+    }
+    console.log('='.repeat(60) + '\n');
+
     try {
         const session = await client.live.connect({
             model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -480,18 +595,35 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     sendToRenderer('update-status', 'Live session connected');
                 },
                 onmessage: message => {
-                    logger.info('----------------', message);
-
-                    if (message.serverContent?.inputTranscription?.results) {
-                        state.currentTranscription += formatSpeakerResults(message.serverContent.inputTranscription.results);
-                    } else if (message.serverContent?.inputTranscription?.text) {
-                        const text = message.serverContent.inputTranscription.text;
-                        if (text.trim() !== '') {
+                    // 1. Handle Input Transcription (User Speaking) - TRUE CHUNKS
+                    if (message.serverContent?.inputTranscription) {
+                        state.isUserStreaming = true; // Silence wave
+                        const text = message.serverContent.inputTranscription.text || formatSpeakerResults(message.serverContent.inputTranscription.results);
+                        if (text && text.trim() !== '') {
                             state.currentTranscription += text;
+                            // Print every chunk on a new line for that "Live Stream" feel
+                            console.log(`\x1b[34m[USER] >\x1b[0m ${text.trim()}`);
+                        }
+
+                        // Reset flag after 1 second of no new transcription chunks
+                        if (state.userStreamTimeout) clearTimeout(state.userStreamTimeout);
+                        state.userStreamTimeout = setTimeout(() => {
+                            state.isUserStreaming = false;
+                        }, 1000);
+                    } 
+                    
+                    // 2. Handle Model Response (AI Speaking) - TRUE CHUNKS
+                    if (message.serverContent?.modelTurn?.parts) {
+                        state.isAiStreaming = true; // Set flag to silence wave
+                        const text = message.serverContent.modelTurn.parts.map(p => p.text || '').join('');
+                        if (text && text.trim() !== '') {
+                            state.messageBuffer += text;
+                            console.log(`\x1b[32m[AI] <\x1b[0m ${text.trim()}`);
                         }
                     }
 
                     if (message.serverContent?.generationComplete) {
+                        state.isAiStreaming = false; // Reset flag when done
                         if (state.currentTranscription.trim() !== '') {
                             if (hasGroqKey()) {
                                 sendToGroq(state.currentTranscription);
@@ -531,10 +663,11 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
             config: {
                 responseModalities: [Modality.AUDIO],
                 proactivity: { proactiveAudio: true },
-                outputAudioTranscription: {},
+                outputAudioTranscription: {}, 
                 tools: enabledTools,
                 inputAudioTranscription: {
-                    enableSpeakerDiarization: true,
+                    enabled: !isUsingWhisper, // Enable if not using local Whisper
+                    enableSpeakerDiarization: !isUsingWhisper,
                     minSpeakerCount: 2,
                     maxSpeakerCount: 2,
                 },
@@ -552,6 +685,15 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         }
         return session;
     } catch (error) {
+        console.log('\x1b[31m%s\x1b[0m', `[CRITICAL] Failed to initialize Gemini session: ${error.message}`);
+        
+        // Fallback to local Whisper if cloud session fails
+        const prefs = getPreferences();
+        if (prefs.transcriptionEngine !== 'whisper') {
+            console.log('\x1b[33m%s\x1b[0m', '[FALLBACK] Attempting to start Local Whisper due to Gemini failure...');
+            await getLocalAi().initializeLocalSession(null, null, prefs.whisperModel || 'base.en', profile, customPrompt);
+        }
+
         logger.error('Failed to initialize Gemini session:', error);
         state.isInitializing = false;
         if (!isReconnect) {
@@ -744,10 +886,20 @@ function stopMacOSAudioCapture() {
     }
 }
 
+// Helper for visual audio activity
+let waveIndex = 0;
+const waveChars = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '▆', '▅', '▄', '▃', '▂'];
+
 async function sendAudioToGemini(base64Data, geminiSessionRef) {
     if (!geminiSessionRef.current) return;
     try {
-        process.stdout.write('.');
+        // Only print wave if NO ONE is currently streaming a response (AI or User)
+        if (!state.isAiStreaming && !state.isUserStreaming) {
+            const char = waveChars[waveIndex % waveChars.length];
+            process.stdout.write(`\r\x1b[K\x1b[33m${char} [STREAMING AUDIO]\x1b[0m`);
+            waveIndex++;
+        }
+
         await geminiSessionRef.current.sendRealtimeInput({
             audio: { data: base64Data, mimeType: 'audio/pcm;rate=24000' },
         });
@@ -863,20 +1015,26 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         }
         const { data, mimeType } = payload;
 
-        try {
-            if (state.providerMode === 'cloud') {
-                sendCloudAudio(Buffer.from(data, 'base64'));
-                return { success: true };
-            }
-            if (state.providerMode === 'local') {
-                getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
-                return { success: true };
-            }
-            if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
-            process.stdout.write('.');
-            await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+    try {
+        if (state.providerMode === 'cloud') {
+            sendCloudAudio(Buffer.from(data, 'base64'));
             return { success: true };
-        } catch (error) {
+        }
+        if (state.providerMode === 'local' || state.providerMode === 'byok') {
+            getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
+            return { success: true };
+        }
+        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+        
+        if (!state.isAiStreaming) {
+            const char = waveChars[waveIndex % waveChars.length];
+            process.stdout.write(`\r\x1b[K\x1b[33m${char} [STREAMING AUDIO]\x1b[0m`);
+            waveIndex++;
+        }
+
+        await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+        return { success: true };
+    } catch (error) {
             logger.error('Error sending system audio:', error);
             return { success: false, error: error.message };
         }
@@ -888,20 +1046,26 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         }
         const { data, mimeType } = payload;
 
-        try {
-            if (state.providerMode === 'cloud') {
-                sendCloudAudio(Buffer.from(data, 'base64'));
-                return { success: true };
-            }
-            if (state.providerMode === 'local') {
-                getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
-                return { success: true };
-            }
-            if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
-            process.stdout.write(',');
-            await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+    try {
+        if (state.providerMode === 'cloud') {
+            sendCloudAudio(Buffer.from(data, 'base64'));
             return { success: true };
-        } catch (error) {
+        }
+        if (state.providerMode === 'local' || state.providerMode === 'byok') {
+            getLocalAi().processLocalAudio(Buffer.from(data, 'base64'));
+            return { success: true };
+        }
+        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+        
+        if (!state.isAiStreaming) {
+            const char = waveChars[waveIndex % waveChars.length];
+            process.stdout.write(`\r\x1b[K\x1b[33m${char} [STREAMING MIC]\x1b[0m`);
+            waveIndex++;
+        }
+
+        await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+        return { success: true };
+    } catch (error) {
             logger.error('Error sending mic audio:', error);
             return { success: false, error: error.message };
         }
@@ -1077,4 +1241,5 @@ module.exports = {
     sendImageToGeminiHttp,
     setupGeminiIpcHandlers,
     formatSpeakerResults,
+    state,
 };

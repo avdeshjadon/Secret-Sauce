@@ -138,14 +138,18 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
             audioBuffer = audioBuffer.slice(CHUNK_SIZE);
 
             const monoChunk = CHANNELS === 2 ? convertStereoToMono(chunk) : chunk;
+            const prefs = getPreferences();
+            const transcriptionEngine = prefs.transcriptionEngine || 'whisper';
 
             if (currentProviderMode() === 'cloud') {
                 sendCloudAudio(monoChunk);
-            } else if (currentProviderMode() === 'local') {
-                getLocalAi().processLocalAudio(monoChunk);
-            } else {
+            } else if (transcriptionEngine === 'gemini' && currentProviderMode() === 'byok') {
+                // If user wants Gemini transcription in BYOK mode, send audio to Gemini
                 const base64Data = monoChunk.toString('base64');
                 sendAudioToGemini(base64Data, geminiSessionRef);
+            } else {
+                // For 'local' mode, or 'byok' mode with Whisper, use local Whisper transcription
+                getLocalAi().processLocalAudio(monoChunk);
             }
 
             if (process.env.DEBUG_AUDIO) {

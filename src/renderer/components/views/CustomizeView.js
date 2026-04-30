@@ -223,6 +223,10 @@ export class CustomizeView extends LitElement {
         isRestoring: { type: Boolean },
         clearStatusMessage: { type: String },
         clearStatusType: { type: String },
+        transcriptionEngine: { type: String },
+        whisperModel: { type: String },
+        whisperStatus: { type: Object, state: true },
+        downloadProgress: { type: Number, state: true },
     };
 
     constructor() {
@@ -246,6 +250,10 @@ export class CustomizeView extends LitElement {
         this.audioMode = 'speaker_only';
         this.customPrompt = '';
         this.theme = 'dark';
+        this.transcriptionEngine = 'gemini';
+        this.whisperModel = 'tiny.en';
+        this.whisperStatus = {};
+        this.downloadProgress = 0;
         this._loadFromStorage();
     }
 
@@ -262,6 +270,9 @@ export class CustomizeView extends LitElement {
             this.audioMode = prefs.audioMode ?? 'speaker_only';
             this.customPrompt = prefs.customPrompt ?? '';
             this.theme = prefs.theme ?? 'dark';
+            this.transcriptionEngine = prefs.transcriptionEngine ?? 'gemini';
+            this.whisperModel = prefs.whisperModel ?? 'tiny.en';
+            
             if (keybinds) {
                 this.keybinds = { ...this.getDefaultKeybinds(), ...keybinds };
                 const isMac = secretSauce.isMacOS || navigator.platform.includes('Mac');
@@ -274,9 +285,86 @@ export class CustomizeView extends LitElement {
             }
             this.updateBackgroundAppearance();
             this.updateFontSize();
+            this._checkWhisperModels();
             this.requestUpdate();
         } catch (error) {
             console.error('Error loading settings:', error);
+        }
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        this._unsubProgress = secretSauce.on('whisper-download-progress', (data) => {
+            this.downloadProgress = data.progress;
+            if (data.progress === 100) {
+                setTimeout(() => this._checkWhisperModels(), 1000);
+            }
+            this.requestUpdate();
+        });
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._unsubProgress) this._unsubProgress();
+    }
+
+    async _checkWhisperModels() {
+        const models = ['tiny.en', 'base.en', 'small.en', 'medium.en'];
+        const status = {};
+        for (const m of models) {
+            status[m] = await secretSauce.invoke('check-whisper-model-exists', m);
+        }
+        this.whisperStatus = status;
+        this.requestUpdate();
+    }
+
+    async handleTranscriptionEngineChange(e) {
+        const engine = e.target.value;
+        this.transcriptionEngine = engine;
+        await secretSauce.storage.updatePreference('transcriptionEngine', engine);
+        this.requestUpdate();
+    }
+
+    async handleWhisperModelSelect(e) {
+        const model = e.target.value;
+        this.whisperModel = model;
+        await secretSauce.storage.updatePreference('whisperModel', model);
+        // Re-check status just to be sure
+        await this._checkWhisperModels();
+        this.requestUpdate();
+    }
+
+    async handleDownloadModel() {
+        if (this.downloadProgress > 0 && this.downloadProgress < 100) return;
+        
+        try {
+            this.downloadProgress = 1;
+            const result = await secretSauce.invoke('download-whisper-model', this.whisperModel);
+            if (result.success) {
+                await this._checkWhisperModels();
+                this.downloadProgress = 0;
+            } else {
+                alert('Download failed: ' + result.error);
+                this.downloadProgress = 0;
+            }
+        } catch (err) {
+            alert('Download error: ' + err.message);
+            this.downloadProgress = 0;
+        }
+    }
+
+    async handleDeleteModel(modelName) {
+        if (confirm(`Are you sure you want to delete the ${modelName} model?`)) {
+            try {
+                const result = await secretSauce.invoke('delete-whisper-model', modelName);
+                if (result.success) {
+                    await this._checkWhisperModels();
+                } else {
+                    alert('Delete failed: ' + result.error);
+                }
+            } catch (err) {
+                alert('Delete error: ' + err.message);
+            }
         }
     }
 
@@ -598,9 +686,8 @@ export class CustomizeView extends LitElement {
                 this.clearStatusMessage = 'Closing application...';
                 this.requestUpdate();
                 setTimeout(async () => {
-                    if (window.require) {
-                        const { ipcRenderer } = window.require('electron');
-                        await ipcRenderer.invoke('quit-application');
+                    if (window.electronAPI) {
+                        await window.electronAPI.invoke('quit-application');
                     }
                 }, 1000);
             }, 2000);
@@ -612,6 +699,75 @@ export class CustomizeView extends LitElement {
             this.isClearing = false;
             this.requestUpdate();
         }
+    }
+
+    renderTranscriptionSection() {
+        const models = [
+            { value: 'tiny.en', label: 'Tiny (Fastest, ~75MB)' },
+            { value: 'base.en', label: 'Base (Balanced, ~140MB)' },
+            { value: 'small.en', label: 'Small (Better accuracy, ~460MB)' },
+            { value: 'medium.en', label: 'Medium (Best accuracy, ~1.5GB)' },
+        ];
+
+        const isDownloaded = this.whisperStatus[this.whisperModel];
+
+        return html`
+            <section class="surface">
+                <div class="surface-title">Transcription Engine</div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Preferred Engine</label>
+                        <select class="control" .value=${this.transcriptionEngine} @change=${this.handleTranscriptionEngineChange}>
+                            <option value="gemini">Gemini (Cloud - Fast & Accurate)</option>
+                            <option value="whisper">Whisper (Local - Private & Offline)</option>
+                        </select>
+                        <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+                            Whisper runs entirely on your device for maximum privacy. Gemini requires an active internet connection.
+                        </p>
+                    </div>
+
+                    ${this.transcriptionEngine === 'whisper' ? html`
+                        <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                            <label class="form-label">Whisper Model</label>
+                            <div style="display: flex; gap: 8px;">
+                                <select class="control" style="flex: 1;" .value=${this.whisperModel} @change=${this.handleWhisperModelSelect}>
+                                    ${models.map(m => html`
+                                        <option value=${m.value}>
+                                            ${m.label} ${this.whisperStatus[m.value] ? '✓' : ''}
+                                        </option>
+                                    `)}
+                                </select>
+                                <button 
+                                    class="control" 
+                                    style="width: auto; padding: 0 16px; background: ${isDownloaded ? 'var(--bg-elevated)' : 'var(--accent)'}; color: ${isDownloaded ? 'var(--text-secondary)' : 'var(--btn-primary-text)'}"
+                                    @click=${this.handleDownloadModel}
+                                    ?disabled=${isDownloaded || (this.downloadProgress > 0 && this.downloadProgress < 100)}
+                                >
+                                    ${this.downloadProgress > 0 && this.downloadProgress < 100 
+                                        ? `Downloading ${this.downloadProgress}%` 
+                                        : (isDownloaded ? 'Downloaded' : 'Download')}
+                                </button>
+                                ${isDownloaded ? html`
+                                    <button 
+                                        class="control" 
+                                        style="width: auto; padding: 0 10px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);"
+                                        @click=${() => this.handleDeleteModel(this.whisperModel)}
+                                        title="Delete Model"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
+                                    </button>
+                                ` : ''}
+                            </div>
+                            <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+                                ${isDownloaded 
+                                    ? html`<span style="color: var(--success)">● Downloaded</span>. You are ready to use local transcription.` 
+                                    : 'Model not found. Download it to enable local transcription.'}
+                            </p>
+                        </div>
+                    ` : ''}
+                </div>
+            </section>
+        `;
     }
 
     renderAudioSection() {
@@ -777,6 +933,7 @@ export class CustomizeView extends LitElement {
             <div class="unified-page">
                 <div class="unified-wrap">
                     <div class="page-title">Settings</div>
+                    ${this.renderTranscriptionSection()}
                     ${this.renderAudioSection()} ${this.renderLanguageSection()} ${this.renderAppearanceSection()} ${this.renderKeyboardSection()}
                     ${this.renderResetSection()}
                 </div>

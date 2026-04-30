@@ -15,9 +15,13 @@ if (require('electron-squirrel-startup')) {
     process.exit(0);
 }
 
+// Bypass SSL certificate errors (fixes #15: "self signed certificate in certificate chain")
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { createWindow, updateGlobalShortcuts } = require('./window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./ai/gemini');
+const { initializeLocalSession } = require('./ai/localai');
 const storage = require('./storage');
 const { logger } = require('./utils/logger');
 

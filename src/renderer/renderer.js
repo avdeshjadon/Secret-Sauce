@@ -171,8 +171,9 @@ async function initializeLocal(profile = 'interview') {
     const prefs = await storage.getPreferences();
     const ollamaHost = prefs.ollamaHost || 'http://127.0.0.1:11434';
     const ollamaModel = prefs.ollamaModel || 'llama3.1';
-    const whisperModel = prefs.whisperModel || 'Xenova/whisper-small';
+    const whisperModel = prefs.whisperModel || 'tiny.en';
     const customPrompt = prefs.customPrompt || '';
+    console.log(`[LocalAI] Initializing with model: ${whisperModel}`);
 
     const success = await window.electronAPI.invoke('initialize-local', ollamaHost, ollamaModel, whisperModel, profile, customPrompt);
     if (success) {
@@ -762,6 +763,9 @@ const secretSauce = {
     refreshPreferencesCache: loadPreferencesCache,
     isLinux,
     isMacOS,
+    invoke: (channel, ...args) => window.electronAPI.invoke(channel, ...args),
+    send: (channel, data) => window.electronAPI.send(channel, data),
+    on: (channel, callback) => window.electronAPI.on(channel, callback),
 };
 
 window.secretSauce = secretSauce;

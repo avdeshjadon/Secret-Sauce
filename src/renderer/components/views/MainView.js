@@ -503,7 +503,6 @@ export class MainView extends LitElement {
         selectedProfile: { type: String },
         onProfileChange: { type: Function },
         isInitializing: { type: Boolean },
-        whisperDownloading: { type: Boolean },
         // Internal state
         _mode: { state: true },
         _token: { state: true },
@@ -536,7 +535,7 @@ export class MainView extends LitElement {
         this._showLocalHelp = false;
         this._ollamaHost = 'http://127.0.0.1:11434';
         this._ollamaModel = 'llama3.1';
-        this._whisperModel = 'Xenova/whisper-small';
+        this._whisperModel = 'tiny.en';
 
         this._animId = null;
         this._time = 0;
@@ -566,7 +565,7 @@ export class MainView extends LitElement {
             // Load local AI settings
             this._ollamaHost = prefs.ollamaHost || 'http://127.0.0.1:11434';
             this._ollamaModel = prefs.ollamaModel || 'llama3.1';
-            this._whisperModel = prefs.whisperModel || 'Xenova/whisper-small';
+            this._whisperModel = prefs.whisperModel || 'tiny.en';
 
             this.requestUpdate();
         } catch (e) {
@@ -743,12 +742,6 @@ export class MainView extends LitElement {
         this.requestUpdate();
     }
 
-    async _saveWhisperModel(val) {
-        this._whisperModel = val;
-        await secretSauce.storage.updatePreference('whisperModel', val);
-        this.requestUpdate();
-    }
-
     _handleProfileChange(e) {
         this.onProfileChange(e.target.value);
     }
@@ -922,24 +915,6 @@ export class MainView extends LitElement {
                 </div>
             </div>
 
-            <div class="form-group">
-                <div class="whisper-label-row">
-                    <label class="form-label">Whisper Model</label>
-                    ${this.whisperDownloading ? html`<div class="whisper-spinner"></div>` : ''}
-                </div>
-                <select .value=${this._whisperModel} @change=${e => this._saveWhisperModel(e.target.value)}>
-                    <option value="Xenova/whisper-tiny" ?selected=${this._whisperModel === 'Xenova/whisper-tiny'}>
-                        Tiny (fastest, least accurate)
-                    </option>
-                    <option value="Xenova/whisper-base" ?selected=${this._whisperModel === 'Xenova/whisper-base'}>Base</option>
-                    <option value="Xenova/whisper-small" ?selected=${this._whisperModel === 'Xenova/whisper-small'}>Small (recommended)</option>
-                    <option value="Xenova/whisper-medium" ?selected=${this._whisperModel === 'Xenova/whisper-medium'}>
-                        Medium (most accurate, slowest)
-                    </option>
-                </select>
-                <div class="form-hint">${this.whisperDownloading ? 'Downloading model...' : 'Downloaded automatically on first use'}</div>
-            </div>
-
             ${this._renderStartButton()} ${this._renderDivider()}
 
             <!-- Cloud promo intentionally removed from the active UI. -->
@@ -949,6 +924,7 @@ export class MainView extends LitElement {
             </div>
         `;
     }
+
 
     // ── Main render ──
 
