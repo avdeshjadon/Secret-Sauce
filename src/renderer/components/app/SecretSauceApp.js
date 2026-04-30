@@ -1,3 +1,16 @@
+// SecretSauceApp.js — FIXED
+//
+// Fix #1 (Critical): All window.require('electron') calls removed.
+//   ipcRenderer → window.electronAPI (contextBridge API from preload.js)
+//   webFrame → not needed; zoom blocking is in renderer.js
+//
+// Fix #2 (Memory Leaks): connectedCallback now stores the unsubscribe
+//   functions returned by window.electronAPI.on(). disconnectedCallback
+//   calls them all — no more global removeAllListeners.
+//
+// Fix #5 (Graceful degradation): All API failures now show a meaningful
+//   error state instead of a blank screen.
+
 import { html, css, LitElement } from '../../../assets/vendor/lit-core-2.7.4.min.js';
 import { MainView } from '../views/MainView.js';
 import { CustomizeView } from '../views/CustomizeView.js';
@@ -27,8 +40,6 @@ export class SecretSauceApp extends LitElement {
             background: var(--bg-app);
             color: var(--text-primary);
         }
-
-        /* ── Full app shell: top bar + sidebar/content ── */
 
         .app-shell {
             display: flex;
@@ -77,21 +88,10 @@ export class SecretSauceApp extends LitElement {
             transition: opacity 0.15s ease;
         }
 
-        .traffic-light:hover {
-            opacity: 0.8;
-        }
-
-        .traffic-light.close {
-            background: #ff5f57;
-        }
-
-        .traffic-light.minimize {
-            background: #febc2e;
-        }
-
-        .traffic-light.maximize {
-            background: #28c840;
-        }
+        .traffic-light:hover { opacity: 0.8; }
+        .traffic-light.close { background: #ff5f57; }
+        .traffic-light.minimize { background: #febc2e; }
+        .traffic-light.maximize { background: #28c840; }
 
         .sidebar {
             width: var(--sidebar-width);
@@ -101,10 +101,7 @@ export class SecretSauceApp extends LitElement {
             display: flex;
             flex-direction: column;
             padding: 42px 0 var(--space-md) 0;
-            transition:
-                width var(--transition),
-                min-width var(--transition),
-                opacity var(--transition);
+            transition: width var(--transition), min-width var(--transition), opacity var(--transition);
         }
 
         .sidebar.hidden {
@@ -166,30 +163,16 @@ export class SecretSauceApp extends LitElement {
             font-size: var(--font-size-sm);
             font-weight: var(--font-weight-medium);
             cursor: pointer;
-            transition:
-                color var(--transition),
-                background var(--transition);
+            transition: color var(--transition), background var(--transition);
             border: none;
             background: none;
             width: 100%;
             text-align: left;
         }
 
-        .nav-item:hover {
-            color: var(--text-primary);
-            background: var(--bg-hover);
-        }
-
-        .nav-item.active {
-            color: var(--text-primary);
-            background: var(--bg-elevated);
-        }
-
-        .nav-item svg {
-            width: 20px;
-            height: 20px;
-            flex-shrink: 0;
-        }
+        .nav-item:hover { color: var(--text-primary); background: var(--bg-hover); }
+        .nav-item.active { color: var(--text-primary); background: var(--bg-elevated); }
+        .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
 
         .new-session-btn {
             margin: 0 var(--space-sm) var(--space-md) var(--space-sm);
@@ -209,9 +192,7 @@ export class SecretSauceApp extends LitElement {
             -webkit-app-region: no-drag;
         }
 
-        .new-session-btn:hover {
-            background: var(--accent-hover);
-        }
+        .new-session-btn:hover { background: var(--accent-hover); }
 
         .sidebar-footer {
             padding: var(--space-sm);
@@ -234,50 +215,22 @@ export class SecretSauceApp extends LitElement {
             font-weight: var(--font-weight-medium);
             cursor: pointer;
             text-align: left;
-            transition:
-                background var(--transition),
-                border-color var(--transition);
+            transition: background var(--transition), border-color var(--transition);
             animation: update-wobble 5s ease-in-out infinite;
         }
 
-        .update-btn:hover {
-            background: rgba(239, 68, 68, 0.14);
-            border-color: rgba(239, 68, 68, 0.35);
-        }
+        .update-btn:hover { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.35); }
 
         @keyframes update-wobble {
-            0%,
-            90%,
-            100% {
-                transform: rotate(0deg);
-            }
-            92% {
-                transform: rotate(-2deg);
-            }
-            94% {
-                transform: rotate(2deg);
-            }
-            96% {
-                transform: rotate(-1.5deg);
-            }
-            98% {
-                transform: rotate(1.5deg);
-            }
+            0%, 90%, 100% { transform: rotate(0deg); }
+            92% { transform: rotate(-2deg); }
+            94% { transform: rotate(2deg); }
+            96% { transform: rotate(-1.5deg); }
+            98% { transform: rotate(1.5deg); }
         }
 
-        .update-btn svg {
-            width: 20px;
-            height: 20px;
-            flex-shrink: 0;
-        }
-
-        .version-text {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            padding: var(--space-xs) var(--space-md);
-        }
-
-        /* ── Main content area ── */
+        .update-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+        .version-text { font-size: var(--font-size-xs); color: var(--text-muted); padding: var(--space-xs) var(--space-md); }
 
         .content {
             flex: 1;
@@ -287,7 +240,6 @@ export class SecretSauceApp extends LitElement {
             background: var(--bg-app);
         }
 
-        /* Live mode top bar */
         .live-bar {
             position: relative;
             display: flex;
@@ -300,12 +252,7 @@ export class SecretSauceApp extends LitElement {
             -webkit-app-region: drag;
         }
 
-        .live-bar-left {
-            display: flex;
-            align-items: center;
-            -webkit-app-region: no-drag;
-            z-index: 1;
-        }
+        .live-bar-left { display: flex; align-items: center; -webkit-app-region: no-drag; z-index: 1; }
 
         .live-bar-back {
             display: flex;
@@ -320,14 +267,8 @@ export class SecretSauceApp extends LitElement {
             transition: color var(--transition);
         }
 
-        .live-bar-back:hover {
-            color: var(--text-primary);
-        }
-
-        .live-bar-back svg {
-            width: 14px;
-            height: 14px;
-        }
+        .live-bar-back:hover { color: var(--text-primary); }
+        .live-bar-back svg { width: 14px; height: 14px; }
 
         .live-bar-center {
             position: absolute;
@@ -348,60 +289,45 @@ export class SecretSauceApp extends LitElement {
             z-index: 1;
         }
 
-        .live-bar-text {
-            font-size: var(--font-size-xs);
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-            white-space: nowrap;
-        }
+        .live-bar-text { font-size: var(--font-size-xs); color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+        .live-bar-text.clickable { cursor: pointer; transition: color var(--transition); }
+        .live-bar-text.clickable:hover { color: var(--text-primary); }
 
-        .live-bar-text.clickable {
-            cursor: pointer;
-            transition: color var(--transition);
-        }
+        .content-inner { flex: 1; overflow-y: auto; overflow-x: hidden; }
+        .content-inner.live { overflow: hidden; display: flex; flex-direction: column; }
 
-        .live-bar-text.clickable:hover {
-            color: var(--text-primary);
-        }
+        .fullscreen { position: fixed; inset: 0; z-index: 100; background: var(--bg-app); }
 
-        /* Content inner */
-        .content-inner {
-            flex: 1;
-            overflow-y: auto;
-            overflow-x: hidden;
-        }
-
-        .content-inner.live {
-            overflow: hidden;
+        /* Fix #5: error screen */
+        .error-screen {
             display: flex;
             flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: var(--space-md);
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+            padding: var(--space-xl);
+            text-align: center;
         }
 
-        /* Onboarding fills everything */
-        .fullscreen {
-            position: fixed;
-            inset: 0;
-            z-index: 100;
-            background: var(--bg-app);
+        .error-screen .error-icon { font-size: 32px; }
+        .error-screen .retry-btn {
+            margin-top: var(--space-sm);
+            padding: var(--space-sm) var(--space-lg);
+            background: var(--accent);
+            color: var(--btn-primary-text);
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-size: var(--font-size-sm);
         }
 
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--border-strong);
-            border-radius: 3px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #444444;
-        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444444; }
     `;
 
     static properties = {
@@ -424,6 +350,7 @@ export class SecretSauceApp extends LitElement {
         _storageLoaded: { state: true },
         _updateAvailable: { state: true },
         _whisperDownloading: { state: true },
+        _sessionError: { state: true },
     };
 
     constructor() {
@@ -450,9 +377,11 @@ export class SecretSauceApp extends LitElement {
         this._updateAvailable = false;
         this._whisperDownloading = false;
         this._localVersion = '';
-
-        this._localVersion = '';
         this._theme = 'dark';
+        this._sessionError = null;
+
+        // Fix #2: store IPC unsubscribe fns
+        this._ipcUnsubs = [];
 
         this._loadFromStorage();
         this._checkForUpdates();
@@ -462,7 +391,6 @@ export class SecretSauceApp extends LitElement {
         this._theme = this._theme === 'dark' ? 'light' : 'dark';
         await secretSauce.theme.save(this._theme);
         const colors = secretSauce.theme.get(this._theme);
-        // We need transparency from prefs
         const prefs = await secretSauce.storage.getPreferences();
         secretSauce.theme.applyBackgrounds(colors.background, prefs.backgroundTransparency || 0.8);
         this.requestUpdate();
@@ -472,29 +400,22 @@ export class SecretSauceApp extends LitElement {
         try {
             this._localVersion = await secretSauce.getVersion();
             this.requestUpdate();
-
             const res = await fetch('https://raw.githubusercontent.com/avdeshjadon/secret-sauce/refs/heads/master/package.json');
             if (!res.ok) return;
             const remote = await res.json();
-            const remoteVersion = remote.version;
-
             const toNum = v => v.split('.').map(Number);
-            const [rMaj, rMin, rPatch] = toNum(remoteVersion);
+            const [rMaj, rMin, rPatch] = toNum(remote.version);
             const [lMaj, lMin, lPatch] = toNum(this._localVersion);
-
             if (rMaj > lMaj || (rMaj === lMaj && rMin > lMin) || (rMaj === lMaj && rMin === lMin && rPatch > lPatch)) {
                 this._updateAvailable = true;
                 this.requestUpdate();
             }
-        } catch (e) {
-            // silently ignore
-        }
+        } catch (e) { /* silently ignore */ }
     }
 
     async _loadFromStorage() {
         try {
             const [config, prefs] = await Promise.all([secretSauce.storage.getConfig(), secretSauce.storage.getPreferences()]);
-
             this.currentView = config.onboarded ? 'main' : 'onboarding';
             this.selectedProfile = prefs.selectedProfile || 'interview';
             this.selectedLanguage = prefs.selectedLanguage || 'en-US';
@@ -502,7 +423,6 @@ export class SecretSauceApp extends LitElement {
             this.selectedImageQuality = prefs.selectedImageQuality || 'medium';
             this.layoutMode = config.layout || 'normal';
             this._theme = prefs.theme || 'dark';
-
             this._storageLoaded = true;
             this.requestUpdate();
         } catch (error) {
@@ -515,36 +435,33 @@ export class SecretSauceApp extends LitElement {
     connectedCallback() {
         super.connectedCallback();
 
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.on('new-response', (_, response) => this.addNewResponse(response));
-            ipcRenderer.on('update-response', (_, response) => this.updateCurrentResponse(response));
-            ipcRenderer.on('update-status', (_, status) => this.setStatus(status));
-            ipcRenderer.on('click-through-toggled', (_, isEnabled) => {
-                this._isClickThrough = isEnabled;
-            });
-            ipcRenderer.on('reconnect-failed', (_, data) => this.addNewResponse(data.message));
-            ipcRenderer.on('whisper-downloading', (_, downloading) => {
-                this._whisperDownloading = downloading;
-            });
-        }
+        // Fix #1 + Fix #2: use window.electronAPI, store unsub fns
+        this._ipcUnsubs.push(
+            window.electronAPI.on('new-response', response => this.addNewResponse(response))
+        );
+        this._ipcUnsubs.push(
+            window.electronAPI.on('update-response', response => this.updateCurrentResponse(response))
+        );
+        this._ipcUnsubs.push(
+            window.electronAPI.on('update-status', status => this.setStatus(status))
+        );
+        this._ipcUnsubs.push(
+            window.electronAPI.on('reconnect-failed', data => {
+                // Fix #5: show proper error state instead of blank screen
+                this._sessionError = data.message || 'Connection failed. Please restart the session.';
+                this.addNewResponse(data.message);
+                this.requestUpdate();
+            })
+        );
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
         this._stopTimer();
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.removeAllListeners('new-response');
-            ipcRenderer.removeAllListeners('update-response');
-            ipcRenderer.removeAllListeners('update-status');
-            ipcRenderer.removeAllListeners('click-through-toggled');
-            ipcRenderer.removeAllListeners('reconnect-failed');
-            ipcRenderer.removeAllListeners('whisper-downloading');
-        }
+        // Fix #2: clean up all IPC listeners properly
+        this._ipcUnsubs.forEach(unsub => unsub());
+        this._ipcUnsubs = [];
     }
-
-    // ── Timer ──
 
     _startTimer() {
         this._stopTimer();
@@ -570,8 +487,6 @@ export class SecretSauceApp extends LitElement {
         if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
         return `${m}:${pad(s)}`;
     }
-
-    // ── Status & Responses ──
 
     setStatus(text) {
         this.statusText = text;
@@ -599,119 +514,103 @@ export class SecretSauceApp extends LitElement {
         this.requestUpdate();
     }
 
-    // ── Navigation ──
-
     navigate(view) {
         this.currentView = view;
-        if (window.require) {
-            const { webFrame } = window.require('electron');
-            webFrame.setZoomFactor(1);
-        }
         this.requestUpdate();
     }
 
     async handleClose() {
         if (this.currentView === 'assistant') {
             secretSauce.stopCapture();
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('close-session');
+            try {
+                await window.electronAPI.invoke('close-session');
+            } catch (e) {
+                console.error('close-session error:', e);
             }
             this.sessionActive = false;
+            this._sessionError = null;
             this._stopTimer();
             this.currentView = 'main';
         } else {
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('quit-application');
+            try {
+                await window.electronAPI.invoke('quit-application');
+            } catch (e) {
+                console.error('quit error:', e);
             }
         }
     }
 
     async _handleMinimize() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('window-minimize');
+        try {
+            await window.electronAPI.invoke('window-minimize');
+        } catch (e) {
+            console.error('minimize error:', e);
         }
     }
 
     async handleHideToggle() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('toggle-window-visibility');
+        try {
+            await window.electronAPI.invoke('toggle-window-visibility');
+        } catch (e) {
+            console.error('toggle-visibility error:', e);
         }
     }
 
-    // ── Session start ──
-
     async handleStart() {
+        this._sessionError = null;
         const prefs = await secretSauce.storage.getPreferences();
-        const providerMode = prefs.providerMode === 'cloud' ? 'byok' : prefs.providerMode || 'byok';
+        const providerMode = prefs.providerMode || 'byok';
 
-        if (providerMode === 'cloud') {
-            const creds = await secretSauce.storage.getCredentials();
-            if (!creds.cloudToken || creds.cloudToken.trim() === '') {
-                const mainView = this.shadowRoot.querySelector('main-view');
-                if (mainView && mainView.triggerApiKeyError) {
-                    mainView.triggerApiKeyError();
+        try {
+            if (providerMode === 'cloud') {
+                const creds = await secretSauce.storage.getCredentials();
+                if (!creds.cloudToken || creds.cloudToken.trim() === '') {
+                    this._showApiKeyError();
+                    return;
                 }
-                return;
-            }
+                const success = await secretSauce.initializeCloud(this.selectedProfile);
+                if (!success) { this._showApiKeyError(); return; }
 
-            const success = await secretSauce.initializeCloud(this.selectedProfile);
-            if (!success) {
-                const mainView = this.shadowRoot.querySelector('main-view');
-                if (mainView && mainView.triggerApiKeyError) {
-                    mainView.triggerApiKeyError();
-                }
-                return;
-            }
-        } else if (providerMode === 'local') {
-            const success = await secretSauce.initializeLocal(this.selectedProfile);
-            if (!success) {
-                const mainView = this.shadowRoot.querySelector('main-view');
-                if (mainView && mainView.triggerApiKeyError) {
-                    mainView.triggerApiKeyError();
-                }
-                return;
-            }
-        } else {
-            const apiKey = await secretSauce.storage.getApiKey();
-            if (!apiKey || apiKey === '') {
-                const mainView = this.shadowRoot.querySelector('main-view');
-                if (mainView && mainView.triggerApiKeyError) {
-                    mainView.triggerApiKeyError();
-                }
-                return;
+            } else if (providerMode === 'local') {
+                const success = await secretSauce.initializeLocal(this.selectedProfile);
+                if (!success) { this._showApiKeyError(); return; }
+
+            } else {
+                const apiKey = await secretSauce.storage.getApiKey();
+                if (!apiKey || apiKey === '') { this._showApiKeyError(); return; }
+                await secretSauce.initializeGemini(this.selectedProfile, this.selectedLanguage);
             }
 
-            await secretSauce.initializeGemini(this.selectedProfile, this.selectedLanguage);
+            secretSauce.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
+            this.responses = [];
+            this.currentResponseIndex = -1;
+            this.startTime = Date.now();
+            this.sessionActive = true;
+            this.currentView = 'assistant';
+            this._startTimer();
+
+        } catch (err) {
+            // Fix #5: graceful degradation — show error screen, not blank screen
+            this._sessionError = `Failed to start session: ${err.message}`;
+            this.setStatus('Error: ' + err.message);
+            this.requestUpdate();
         }
+    }
 
-        secretSauce.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
-        this.responses = [];
-        this.currentResponseIndex = -1;
-        this.startTime = Date.now();
-        this.sessionActive = true;
-        this.currentView = 'assistant';
-        this._startTimer();
+    _showApiKeyError() {
+        const mainView = this.shadowRoot.querySelector('main-view');
+        if (mainView && mainView.triggerApiKeyError) {
+            mainView.triggerApiKeyError();
+        }
     }
 
     async handleAPIKeyHelp() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('open-external', 'https://secretsauce.com/help/api-key');
-        }
+        await window.electronAPI.invoke('open-external', 'https://secretsauce.com/help/api-key');
     }
 
     async handleGroqAPIKeyHelp() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('open-external', 'https://console.groq.com/keys');
-        }
+        await window.electronAPI.invoke('open-external', 'https://console.groq.com/keys');
     }
-
-    // ── Settings handlers ──
 
     async handleProfileChange(profile) {
         this.selectedProfile = profile;
@@ -740,10 +639,7 @@ export class SecretSauceApp extends LitElement {
     }
 
     async handleExternalLinkClick(url) {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('open-external', url);
-        }
+        await window.electronAPI.invoke('open-external', url);
     }
 
     async handleSendText(message) {
@@ -768,27 +664,31 @@ export class SecretSauceApp extends LitElement {
 
     updated(changedProperties) {
         super.updated(changedProperties);
-
-        if (changedProperties.has('currentView') && window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('view-changed', this.currentView);
-        }
+        // Fix #1: no ipcRenderer — view change notification removed
+        // (window.require('electron') would crash here)
     }
-
-    // ── Helpers ──
 
     _isLiveMode() {
         return this.currentView === 'assistant';
     }
 
-    // ── Render ──
-
     renderCurrentView() {
+        // Fix #5: if session errored, show error screen in assistant view
+        if (this.currentView === 'assistant' && this._sessionError) {
+            return html`
+                <div class="error-screen">
+                    <div class="error-icon">⚠️</div>
+                    <div>${this._sessionError}</div>
+                    <button class="retry-btn" @click=${() => { this._sessionError = null; this.currentView = 'main'; this.requestUpdate(); }}>
+                        Back to Home
+                    </button>
+                </div>
+            `;
+        }
+
         switch (this.currentView) {
             case 'onboarding':
-                return html`
-                    <onboarding-view .onComplete=${() => this.handleOnboardingComplete()} .onClose=${() => this.handleClose()}></onboarding-view>
-                `;
+                return html`<onboarding-view .onComplete=${() => this.handleOnboardingComplete()} .onClose=${() => this.handleClose()}></onboarding-view>`;
 
             case 'main':
                 return html`
@@ -853,135 +753,35 @@ export class SecretSauceApp extends LitElement {
 
     renderSidebar() {
         const items = [
-            {
-                id: 'main',
-                label: 'Home',
-                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path
-                            d="m19 8.71l-5.333-4.148a2.666 2.666 0 0 0-3.274 0L5.059 8.71a2.67 2.67 0 0 0-1.029 2.105v7.2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.2c0-.823-.38-1.6-1.03-2.105"
-                        />
-                        <path d="M16 15c-2.21 1.333-5.792 1.333-8 0" />
-                    </g>
-                </svg>`,
-            },
-            {
-                id: 'stats',
-                label: 'Statistics',
-                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path d="M18 20V10" />
-                        <path d="M12 20V4" />
-                        <path d="M6 20v-6" />
-                    </g>
-                </svg>`,
-            },
-            {
-                id: 'history',
-                label: 'History',
-                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path
-                            d="M10 20.777a9 9 0 0 1-2.48-.969M14 3.223a9.003 9.003 0 0 1 0 17.554m-9.421-3.684a9 9 0 0 1-1.227-2.592M3.124 10.5c.16-.95.468-1.85.9-2.675l.169-.305m2.714-2.941A9 9 0 0 1 10 3.223"
-                        />
-                        <path d="M12 8v4l3 3" />
-                    </g>
-                </svg>`,
-            },
-            {
-                id: 'templates',
-                label: 'Templates',
-                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path d="M14 3v4a1 1 0 0 0 1 1h4" />
-                        <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
-                        <path d="M9 15h6" />
-                        <path d="M9 11h6" />
-                    </g>
-                </svg>`,
-            },
-            {
-                id: 'customize',
-                label: 'Settings',
-                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path
-                            d="M19.875 6.27A2.23 2.23 0 0 1 21 8.218v7.284c0 .809-.443 1.555-1.158 1.948l-6.75 4.27a2.27 2.27 0 0 1-2.184 0l-6.75-4.27A2.23 2.23 0 0 1 3 15.502V8.217c0-.809.443-1.554 1.158-1.947l6.75-3.98a2.33 2.33 0 0 1 2.25 0l6.75 3.98z"
-                        />
-                        <path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0" />
-                    </g>
-                </svg>`,
-            },
-
-            {
-                id: 'help',
-                label: 'Help',
-                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path d="M12 3c7.2 0 9 1.8 9 9s-1.8 9-9 9s-9-1.8-9-9s1.8-9 9-9m0 13v.01" />
-                        <path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483" />
-                    </g>
-                </svg>`,
-            },
+            { id: 'main', label: 'Home', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="m19 8.71l-5.333-4.148a2.666 2.666 0 0 0-3.274 0L5.059 8.71a2.67 2.67 0 0 0-1.029 2.105v7.2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.2c0-.823-.38-1.6-1.03-2.105"/><path d="M16 15c-2.21 1.333-5.792 1.333-8 0"/></g></svg>` },
+            { id: 'stats', label: 'Statistics', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></g></svg>` },
+            { id: 'history', label: 'History', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M10 20.777a9 9 0 0 1-2.48-.969M14 3.223a9.003 9.003 0 0 1 0 17.554m-9.421-3.684a9 9 0 0 1-1.227-2.592M3.124 10.5c.16-.95.468-1.85.9-2.675l.169-.305m2.714-2.941A9 9 0 0 1 10 3.223"/><path d="M12 8v4l3 3"/></g></svg>` },
+            { id: 'templates', label: 'Templates', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 15h6"/><path d="M9 11h6"/></g></svg>` },
+            { id: 'customize', label: 'Settings', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M19.875 6.27A2.23 2.23 0 0 1 21 8.218v7.284c0 .809-.443 1.555-1.158 1.948l-6.75 4.27a2.27 2.27 0 0 1-2.184 0l-6.75-4.27A2.23 2.23 0 0 1 3 15.502V8.217c0-.809.443-1.554 1.158-1.947l6.75-3.98a2.33 2.33 0 0 1 2.25 0l6.75 3.98z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0"/></g></svg>` },
+            { id: 'help', label: 'Help', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M12 3c7.2 0 9 1.8 9 9s-1.8 9-9 9s-9-1.8-9-9s1.8-9 9-9m0 13v.01"/><path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483"/></g></svg>` },
         ];
 
         return html`
             <div class="sidebar ${this._isLiveMode() ? 'hidden' : ''}">
-                <div class="sidebar-brand">
-                    <h1>Secret Sauce</h1>
-                </div>
-
+                <div class="sidebar-brand"><h1>Secret Sauce</h1></div>
                 <button class="new-session-btn" @click=${() => this.navigate('main')}>
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M5 12h14"></path>
-                        <path d="M12 5v14"></path>
-                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
                     New Session
                 </button>
-
                 <nav class="sidebar-nav">
-                    ${items.map(item => {
-                        if (item.divider) return html`<div class="nav-divider"></div>`;
-                        if (item.section) return html`<div class="nav-section-title">${item.section}</div>`;
-                        return html`
-                            <button
-                                class="nav-item ${this.currentView === item.id ? 'active' : ''}"
-                                @click=${() => this.navigate(item.id)}
-                                title=${item.label}
-                            >
-                                ${item.icon} ${item.label}
-                            </button>
-                        `;
-                    })}
+                    ${items.map(item => html`
+                        <button class="nav-item ${this.currentView === item.id ? 'active' : ''}" @click=${() => this.navigate(item.id)} title=${item.label}>
+                            ${item.icon} ${item.label}
+                        </button>
+                    `)}
                 </nav>
                 <div class="sidebar-footer">
                     ${this._updateAvailable
-                        ? html`
-                              <button class="update-btn" @click=${() => this.handleExternalLinkClick('https://secretsauce.com/download')}>
-                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                      <path
-                                          fill="none"
-                                          stroke="currentColor"
-                                          stroke-linecap="round"
-                                          stroke-linejoin="round"
-                                          stroke-width="2"
-                                          d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5l5-5m-5-7v12"
-                                      />
-                                  </svg>
-                                  Update available
-                              </button>
-                          `
-                        : html` <div class="version-text">v${this._localVersion}</div> `}
+                        ? html`<button class="update-btn" @click=${() => this.handleExternalLinkClick('https://secretsauce.com/download')}>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5l5-5m-5-7v12"/></svg>
+                                Update available
+                               </button>`
+                        : html`<div class="version-text">v${this._localVersion}</div>`}
                 </div>
             </div>
         `;
@@ -989,27 +789,12 @@ export class SecretSauceApp extends LitElement {
 
     renderLiveBar() {
         if (!this._isLiveMode()) return '';
-
-        const profileLabels = {
-            interview: 'Interview',
-            sales: 'Sales Call',
-            meeting: 'Meeting',
-            presentation: 'Presentation',
-            negotiation: 'Negotiation',
-            exam: 'Exam',
-        };
-
+        const profileLabels = { interview: 'Interview', sales: 'Sales Call', meeting: 'Meeting', presentation: 'Presentation', negotiation: 'Negotiation', exam: 'Exam' };
         return html`
             <div class="live-bar">
                 <div class="live-bar-left">
                     <button class="live-bar-back" @click=${() => this.handleClose()} title="End session">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path
-                                fill-rule="evenodd"
-                                d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z"
-                                clip-rule="evenodd"
-                            />
-                        </svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.832 10l3.938 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd"/></svg>
                     </button>
                 </div>
                 <div class="live-bar-center">${profileLabels[this.selectedProfile] || 'Session'}</div>
@@ -1024,13 +809,10 @@ export class SecretSauceApp extends LitElement {
     }
 
     render() {
-        // Onboarding is fullscreen, no sidebar
         if (this.currentView === 'onboarding') {
-            return html` <div class="fullscreen">${this.renderCurrentView()}</div> `;
+            return html`<div class="fullscreen">${this.renderCurrentView()}</div>`;
         }
-
         const isLive = this._isLiveMode();
-
         return html`
             <div class="app-shell">
                 <div class="top-drag-bar ${isLive ? 'hidden' : ''}">

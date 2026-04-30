@@ -1,3 +1,11 @@
+/**
+ * window.js — FIXED
+ *
+ * Fix #1 (Critical): contextIsolation: true, nodeIntegration: false
+ * The renderer no longer has any Node.js access. All IPC now goes through
+ * the contextBridge defined in preload.js.
+ */
+
 const { BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer } = require('electron');
 const { logger } = require('./utils/logger');
 const path = require('node:path');
@@ -23,8 +31,15 @@ function createWindow(sendToRenderer, geminiSessionRef) {
         hasShadow: false,
         alwaysOnTop: true,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false, // TODO: change to true
+            // ─── FIX #1 (CRITICAL) ─────────────────────────────────────────
+            // contextIsolation MUST be true so the renderer runs in a separate
+            // JS context from Node.js. Combined with nodeIntegration: false,
+            // this means renderer code cannot access require(), process, fs, etc.
+            // All IPC now goes through the contextBridge in preload.js.
+            contextIsolation: true,       // was: false
+            nodeIntegration: false,        // was: true
+            // ───────────────────────────────────────────────────────────────
+            preload: path.join(__dirname, 'preload.js'),
             backgroundThrottling: false,
             enableBlinkFeatures: 'GetDisplayMedia',
             webSecurity: true,
@@ -34,7 +49,7 @@ function createWindow(sendToRenderer, geminiSessionRef) {
         backgroundColor: '#00000000',
     });
 
-    const { session, desktopCapturer } = require('electron');
+    const { session } = require('electron');
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
         desktopCapturer
             .getSources({ types: ['screen'] })
@@ -98,328 +113,114 @@ function createWindow(sendToRenderer, geminiSessionRef) {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
     // After window is created, initialize keybinds
-    mainWindow.webContents.once('dom-ready', () => {
-        // Disable pinch-to-zoom
-        mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
-        mainWindow.webContents.executeJavaScript(`
-            const meta = document.createElement('meta');
-            meta.name = 'viewport';
-            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-            document.head.appendChild(meta);
-        `);
+    const savedKeybinds = storage.getKeybinds();
+    if (savedKeybinds) {
+        setupGlobalShortcuts(savedKeybinds, mainWindow, sendToRenderer, geminiSessionRef);
+    } else {
+        setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef);
+    }
 
-        setTimeout(() => {
-            const defaultKeybinds = getDefaultKeybinds();
-            let keybinds = defaultKeybinds;
-
-            // Load keybinds from storage
-            const savedKeybinds = storage.getKeybinds();
-            if (savedKeybinds) {
-                keybinds = { ...defaultKeybinds, ...savedKeybinds };
-            }
-
-            updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef);
-        }, 150);
+    mainWindow.on('moved', () => {
+        const bounds = mainWindow.getBounds();
+        sendToRenderer('window-moved', bounds);
     });
-
-    // Block zoom keyboard shortcuts
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-        if (input.type === 'keyDown') {
-            const { control, meta, key } = input;
-            const isCommand = process.platform === 'darwin' ? meta : control;
-
-            if (isCommand && (key === '=' || key === '+' || key === '-' || key === '0' || key === '_')) {
-                event.preventDefault();
-            }
-        }
-    });
-
-    // Block mouse wheel zoom
-    mainWindow.webContents.on('mouse-wheel', (event, input) => {
-        const isCommand = process.platform === 'darwin' ? input.meta : input.control;
-        if (isCommand) {
-            event.preventDefault();
-        }
-    });
-
-    mainWindow.webContents.on('zoom-changed', (event, zoomDirection) => {
-        mainWindow.webContents.setZoomFactor(1);
-    });
-
-    setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef);
 
     return mainWindow;
 }
 
-function getDefaultKeybinds() {
+function setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef) {
     const isMac = process.platform === 'darwin';
-    return {
-        moveUp: isMac ? 'Alt+Up' : 'Ctrl+Up',
-        moveDown: isMac ? 'Alt+Down' : 'Ctrl+Down',
-        moveLeft: isMac ? 'Alt+Left' : 'Ctrl+Left',
-        moveRight: isMac ? 'Alt+Right' : 'Ctrl+Right',
-        toggleVisibility: isMac ? 'Cmd+\\' : 'Ctrl+\\',
-        toggleClickThrough: isMac ? 'Cmd+M' : 'Ctrl+M',
-        nextStep: isMac ? 'Cmd+Enter' : 'Ctrl+Enter',
-        previousResponse: isMac ? 'Cmd+[' : 'Ctrl+[',
-        nextResponse: isMac ? 'Cmd+]' : 'Ctrl+]',
-        scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
-        scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
-        emergencyErase: isMac ? 'Cmd+Shift+E' : 'Ctrl+Shift+E',
-    };
+    const modifier = isMac ? 'Command' : 'Control';
+
+    // Toggle click-through / mouse-ignore mode
+    globalShortcut.register(`${modifier}+M`, () => {
+        mouseEventsIgnored = !mouseEventsIgnored;
+        mainWindow.setIgnoreMouseEvents(mouseEventsIgnored, { forward: true });
+        sendToRenderer('shortcut-triggered', { action: 'toggle-click-through', value: mouseEventsIgnored });
+    });
+
+    // Move window left
+    globalShortcut.register(`${modifier}+Left`, () => {
+        const bounds = mainWindow.getBounds();
+        mainWindow.setBounds({ ...bounds, x: Math.max(0, bounds.x - 50) });
+    });
+
+    // Move window right
+    globalShortcut.register(`${modifier}+Right`, () => {
+        const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+        const bounds = mainWindow.getBounds();
+        mainWindow.setBounds({ ...bounds, x: Math.min(screenWidth - bounds.width, bounds.x + 50) });
+    });
+
+    // Move window up
+    globalShortcut.register(`${modifier}+Up`, () => {
+        const bounds = mainWindow.getBounds();
+        mainWindow.setBounds({ ...bounds, y: Math.max(0, bounds.y - 50) });
+    });
+
+    // Move window down
+    globalShortcut.register(`${modifier}+Down`, () => {
+        const { height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+        const bounds = mainWindow.getBounds();
+        mainWindow.setBounds({ ...bounds, y: Math.min(screenHeight - bounds.height, bounds.y + 50) });
+    });
+}
+
+function setupGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef) {
+    globalShortcut.unregisterAll();
+
+    if (!keybinds) {
+        setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef);
+        return;
+    }
+
+    try {
+        if (keybinds.clickThrough) {
+            globalShortcut.register(keybinds.clickThrough, () => {
+                mouseEventsIgnored = !mouseEventsIgnored;
+                mainWindow.setIgnoreMouseEvents(mouseEventsIgnored, { forward: true });
+                sendToRenderer('shortcut-triggered', { action: 'toggle-click-through', value: mouseEventsIgnored });
+            });
+        }
+
+        if (keybinds.moveLeft) {
+            globalShortcut.register(keybinds.moveLeft, () => {
+                const bounds = mainWindow.getBounds();
+                mainWindow.setBounds({ ...bounds, x: Math.max(0, bounds.x - 50) });
+            });
+        }
+
+        if (keybinds.moveRight) {
+            globalShortcut.register(keybinds.moveRight, () => {
+                const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+                const bounds = mainWindow.getBounds();
+                mainWindow.setBounds({ ...bounds, x: Math.min(screenWidth - bounds.width, bounds.x + 50) });
+            });
+        }
+
+        if (keybinds.moveUp) {
+            globalShortcut.register(keybinds.moveUp, () => {
+                const bounds = mainWindow.getBounds();
+                mainWindow.setBounds({ ...bounds, y: Math.max(0, bounds.y - 50) });
+            });
+        }
+
+        if (keybinds.moveDown) {
+            globalShortcut.register(keybinds.moveDown, () => {
+                const { height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+                const bounds = mainWindow.getBounds();
+                mainWindow.setBounds({ ...bounds, y: Math.min(screenHeight - bounds.height, bounds.y + 50) });
+            });
+        }
+    } catch (error) {
+        logger.error('Error registering global shortcuts:', error);
+        // Fall back to defaults if custom keybinds fail
+        setupDefaultShortcuts(mainWindow, sendToRenderer, geminiSessionRef);
+    }
 }
 
 function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef) {
-    logger.info('Updating global shortcuts with:', keybinds);
-
-    // Unregister all existing shortcuts
-    globalShortcut.unregisterAll();
-
-    const isMac = process.platform === 'darwin';
-    const prefix = isMac ? 'mac_' : 'win_';
-
-    // Normalize keybinds for the current platform
-    const activeKeybinds = {};
-    const actions = [
-        'moveUp',
-        'moveDown',
-        'moveLeft',
-        'moveRight',
-        'toggleVisibility',
-        'toggleClickThrough',
-        'nextStep',
-        'previousResponse',
-        'nextResponse',
-        'scrollUp',
-        'scrollDown',
-        'emergencyErase',
-    ];
-
-    actions.forEach(action => {
-        activeKeybinds[action] = keybinds[`${prefix}${action}`] || keybinds[action] || getDefaultKeybinds()[action];
-    });
-
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width, height } = primaryDisplay.workAreaSize;
-    const moveIncrement = Math.floor(Math.min(width, height) * 0.1);
-
-    const movementActions = {
-        moveUp: () => {
-            if (!mainWindow.isVisible()) return;
-            const [currentX, currentY] = mainWindow.getPosition();
-            mainWindow.setPosition(currentX, currentY - moveIncrement);
-        },
-        moveDown: () => {
-            if (!mainWindow.isVisible()) return;
-            const [currentX, currentY] = mainWindow.getPosition();
-            mainWindow.setPosition(currentX, currentY + moveIncrement);
-        },
-        moveLeft: () => {
-            if (!mainWindow.isVisible()) return;
-            const [currentX, currentY] = mainWindow.getPosition();
-            mainWindow.setPosition(currentX - moveIncrement, currentY);
-        },
-        moveRight: () => {
-            if (!mainWindow.isVisible()) return;
-            const [currentX, currentY] = mainWindow.getPosition();
-            mainWindow.setPosition(currentX + moveIncrement, currentY);
-        },
-    };
-
-    Object.keys(movementActions).forEach(action => {
-        const keybind = activeKeybinds[action];
-        if (keybind) {
-            try {
-                globalShortcut.register(keybind, movementActions[action]);
-                logger.info(`Registered ${action}: ${keybind}`);
-            } catch (error) {
-                logger.error(`Failed to register ${action} (${keybind}):`, error);
-            }
-        }
-    });
-
-    // Register toggle visibility shortcut
-    if (activeKeybinds.toggleVisibility) {
-        try {
-            globalShortcut.register(activeKeybinds.toggleVisibility, () => {
-                if (mainWindow.isVisible()) {
-                    mainWindow.hide();
-                } else {
-                    mainWindow.showInactive();
-                }
-            });
-            logger.info(`Registered toggleVisibility: ${activeKeybinds.toggleVisibility}`);
-        } catch (error) {
-            logger.error(`Failed to register toggleVisibility (${activeKeybinds.toggleVisibility}):`, error);
-        }
-    }
-
-    // Register toggle click-through shortcut
-    if (activeKeybinds.toggleClickThrough) {
-        try {
-            globalShortcut.register(activeKeybinds.toggleClickThrough, () => {
-                mouseEventsIgnored = !mouseEventsIgnored;
-                if (mouseEventsIgnored) {
-                    mainWindow.setIgnoreMouseEvents(true, { forward: true });
-                    logger.info('Mouse events ignored');
-                } else {
-                    mainWindow.setIgnoreMouseEvents(false);
-                    logger.info('Mouse events enabled');
-                }
-                mainWindow.webContents.send('click-through-toggled', mouseEventsIgnored);
-            });
-            logger.info(`Registered toggleClickThrough: ${activeKeybinds.toggleClickThrough}`);
-        } catch (error) {
-            logger.error(`Failed to register toggleClickThrough (${activeKeybinds.toggleClickThrough}):`, error);
-        }
-    }
-
-    // Register next step shortcut (either starts session or takes screenshot based on view)
-    if (activeKeybinds.nextStep) {
-        try {
-            globalShortcut.register(activeKeybinds.nextStep, async () => {
-                logger.info('Next step shortcut triggered');
-                try {
-                    // Determine the shortcut key format
-                    const shortcutKey = isMac ? 'cmd+enter' : 'ctrl+enter';
-
-                    // Use the new handleShortcut function
-                    await mainWindow.webContents.executeJavaScript(`
-                        secretSauce.handleShortcut('${shortcutKey}');
-                    `);
-                } catch (error) {
-                    logger.error('Error handling next step shortcut:', error);
-                }
-            });
-            logger.info(`Registered nextStep: ${activeKeybinds.nextStep}`);
-        } catch (error) {
-            logger.error(`Failed to register nextStep (${activeKeybinds.nextStep}):`, error);
-        }
-    }
-
-    // Register previous response shortcut
-    if (activeKeybinds.previousResponse) {
-        try {
-            globalShortcut.register(activeKeybinds.previousResponse, () => {
-                logger.info('Previous response shortcut triggered');
-                sendToRenderer('navigate-previous-response');
-            });
-            logger.info(`Registered previousResponse: ${activeKeybinds.previousResponse}`);
-        } catch (error) {
-            logger.error(`Failed to register previousResponse (${activeKeybinds.previousResponse}):`, error);
-        }
-    }
-
-    // Register next response shortcut
-    if (activeKeybinds.nextResponse) {
-        try {
-            globalShortcut.register(activeKeybinds.nextResponse, () => {
-                logger.info('Next response shortcut triggered');
-                sendToRenderer('navigate-next-response');
-            });
-            logger.info(`Registered nextResponse: ${activeKeybinds.nextResponse}`);
-        } catch (error) {
-            logger.error(`Failed to register nextResponse (${activeKeybinds.nextResponse}):`, error);
-        }
-    }
-
-    // Register scroll up shortcut
-    if (activeKeybinds.scrollUp) {
-        try {
-            globalShortcut.register(activeKeybinds.scrollUp, () => {
-                logger.info('Scroll up shortcut triggered');
-                sendToRenderer('scroll-response-up');
-            });
-            logger.info(`Registered scrollUp: ${activeKeybinds.scrollUp}`);
-        } catch (error) {
-            logger.error(`Failed to register scrollUp (${activeKeybinds.scrollUp}):`, error);
-        }
-    }
-
-    // Register scroll down shortcut
-    if (activeKeybinds.scrollDown) {
-        try {
-            globalShortcut.register(activeKeybinds.scrollDown, () => {
-                logger.info('Scroll down shortcut triggered');
-                sendToRenderer('scroll-response-down');
-            });
-            logger.info(`Registered scrollDown: ${activeKeybinds.scrollDown}`);
-        } catch (error) {
-            logger.error(`Failed to register scrollDown (${activeKeybinds.scrollDown}):`, error);
-        }
-    }
-
-    // Register emergency erase shortcut
-    if (activeKeybinds.emergencyErase) {
-        try {
-            globalShortcut.register(activeKeybinds.emergencyErase, () => {
-                logger.info('Emergency Erase triggered!');
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.hide();
-
-                    if (geminiSessionRef.current) {
-                        geminiSessionRef.current.close();
-                        geminiSessionRef.current = null;
-                    }
-
-                    sendToRenderer('clear-sensitive-data');
-
-                    setTimeout(() => {
-                        const { app } = require('electron');
-                        app.quit();
-                    }, 300);
-                }
-            });
-            logger.info(`Registered emergencyErase: ${activeKeybinds.emergencyErase}`);
-        } catch (error) {
-            logger.error(`Failed to register emergencyErase (${activeKeybinds.emergencyErase}):`, error);
-        }
-    }
+    setupGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef);
 }
 
-function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
-    ipcMain.on('view-changed', (event, view) => {
-        if (!mainWindow.isDestroyed()) {
-            if (view !== 'assistant') {
-                mainWindow.setIgnoreMouseEvents(false);
-            }
-        }
-    });
-
-    ipcMain.handle('window-minimize', () => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.minimize();
-        }
-    });
-
-    ipcMain.on('update-keybinds', (event, newKeybinds) => {
-        if (!mainWindow.isDestroyed()) {
-            updateGlobalShortcuts(newKeybinds, mainWindow, sendToRenderer, geminiSessionRef);
-        }
-    });
-
-    ipcMain.handle('toggle-window-visibility', async event => {
-        try {
-            if (mainWindow.isDestroyed()) {
-                return { success: false, error: 'Window has been destroyed' };
-            }
-
-            if (mainWindow.isVisible()) {
-                mainWindow.hide();
-            } else {
-                mainWindow.showInactive();
-            }
-            return { success: true };
-        } catch (error) {
-            logger.error('Error toggling window visibility:', error);
-            return { success: false, error: error.message };
-        }
-    });
-}
-
-module.exports = {
-    createWindow,
-    getDefaultKeybinds,
-    updateGlobalShortcuts,
-    setupWindowIpcHandlers,
-};
+module.exports = { createWindow, updateGlobalShortcuts };

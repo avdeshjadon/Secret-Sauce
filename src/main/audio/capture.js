@@ -1,5 +1,18 @@
+/**
+ * capture.js — FIXED
+ *
+ * Fix #6 (Architecture): Added the missing logger import.
+ * The original file called logger.info() and logger.error() throughout but
+ * never imported the logger — this caused a ReferenceError crash the moment
+ * macOS audio capture started.
+ */
+
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('./utils');
+
+// ── Fix #6: This import was missing in the original file ──────────────────────
+const { logger } = require('../utils/logger');
+// ──────────────────────────────────────────────────────────────────────────────
 
 // Audio capture variables
 let systemAudioProc = null;
@@ -8,7 +21,6 @@ function killExistingSystemAudioDump() {
     return new Promise(resolve => {
         logger.info('Checking for existing SystemAudioDump processes...');
 
-        // Kill any existing SystemAudioDump processes
         const killProc = spawn('pkill', ['-f', 'SystemAudioDump'], {
             stdio: 'ignore',
         });
@@ -29,7 +41,7 @@ function killExistingSystemAudioDump() {
 
         // Timeout after 2 seconds
         setTimeout(() => {
-            killProc.kill();
+            try { killProc.kill(); } catch (e) {}
             resolve();
         }, 2000);
     });
@@ -57,6 +69,8 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
 
     const { app } = require('electron');
     const path = require('path');
+    const crypto = require('crypto');
+    const fs = require('fs');
 
     let systemAudioPath;
     if (app.isPackaged) {
@@ -67,11 +81,36 @@ async function startMacOSAudioCapture(geminiSessionRef, sendAudioToGemini, curre
 
     logger.info('SystemAudioDump path:', systemAudioPath);
 
+    // ── Fix #12: Integrity check for the native binary ────────────────────────
+    // This is a lightweight guard — it won't catch sophisticated tampering, but
+    // it will catch accidental replacement or corruption of the binary.
+    // To get the hash of your trusted binary: sha256sum SystemAudioDump
+    // Then set the env variable: SYSTEM_AUDIO_DUMP_SHA256=<hash>
+    const expectedHash = process.env.SYSTEM_AUDIO_DUMP_SHA256;
+    if (expectedHash) {
+        try {
+            const fileBuffer = fs.readFileSync(systemAudioPath);
+            const actualHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+            if (actualHash !== expectedHash.toLowerCase()) {
+                logger.error(`[SECURITY] SystemAudioDump integrity check FAILED!`);
+                logger.error(`  Expected: ${expectedHash}`);
+                logger.error(`  Got:      ${actualHash}`);
+                logger.error('  Refusing to execute the binary. Set SYSTEM_AUDIO_DUMP_SHA256 env var to the correct hash, or remove it to skip this check.');
+                return false;
+            }
+            logger.info('[Security] SystemAudioDump integrity check passed.');
+        } catch (err) {
+            logger.error('Could not verify SystemAudioDump integrity:', err.message);
+            return false;
+        }
+    } else {
+        logger.warn('[Security] SYSTEM_AUDIO_DUMP_SHA256 env var not set — skipping binary integrity check.');
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     const spawnOptions = {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-            ...process.env,
-        },
+        env: { ...process.env },
     };
 
     systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
