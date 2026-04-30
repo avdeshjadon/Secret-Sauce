@@ -1,6 +1,13 @@
 const { Ollama } = require('ollama');
 const { getSystemPrompt } = require('./prompts');
-const { sendToRenderer, initializeNewSession, saveConversationTurn, state: geminiState, handleLocalTranscription, failoverToGeminiTranscription } = require('./gemini');
+const {
+    sendToRenderer,
+    initializeNewSession,
+    saveConversationTurn,
+    state: geminiState,
+    handleLocalTranscription,
+    failoverToGeminiTranscription,
+} = require('./gemini');
 const { getPreferences } = require('../storage');
 const { ipcMain } = require('electron');
 const fs = require('fs');
@@ -105,9 +112,9 @@ function createWavHeader(dataLength) {
     // sample rate
     buffer.writeUInt32LE(16000, 24);
     // byte rate (sampleRate * channels * bitsPerSample / 8)
-    buffer.writeUInt32LE(16000 * 1 * 16 / 8, 28);
+    buffer.writeUInt32LE((16000 * 1 * 16) / 8, 28);
     // block align (channels * bitsPerSample / 8)
-    buffer.writeUInt16LE(1 * 16 / 8, 32);
+    buffer.writeUInt16LE((1 * 16) / 8, 32);
     // bits per sample
     buffer.writeUInt16LE(16, 34);
     // data chunk identifier
@@ -301,19 +308,26 @@ async function transcribeWithCpp(pcm16kBuffer) {
                 setTimeout(() => reject(new Error(`whisper.cpp timeout after ${cppTimeoutMs}ms`)), cppTimeoutMs);
             }),
         ]);
-        
+
         // Clean up temp file
-        try { fs.unlinkSync(tempWav); } catch (e) {}
+        try {
+            fs.unlinkSync(tempWav);
+        } catch (e) {}
 
         if (results && results.length > 0) {
-            const text = results.map(r => r.speech).join(' ').trim();
+            const text = results
+                .map(r => r.speech)
+                .join(' ')
+                .trim();
 
             return text;
         }
         return null;
     } catch (error) {
         logger.error('[LocalAI] whisper.cpp transcription error:', error);
-        try { if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav); } catch (e) {}
+        try {
+            if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav);
+        } catch (e) {}
         return null;
     }
 }
@@ -345,7 +359,7 @@ async function handleSpeechEnd(audioData) {
     consecutiveTranscriptionFailures = 0;
 
     sendToRenderer('update-status', 'Generating response...');
-    
+
     // Check if we should send to Ollama or if this is for cloud AI
     if (isLocalActive && ollamaClient) {
         await sendToOllama(transcription);
@@ -439,7 +453,7 @@ async function initializeLocalSession(ollamaHost, model, whisperModel, profile, 
         logger.warn('[LocalAI] Forcing Whisper engine to Transformers on macOS for stability. Set ALLOW_WHISPER_CPP=1 to force cpp.');
         whisperEngine = 'transformers';
     }
-    
+
     // Dynamically calculate model path based on selected whisperModel name
     const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
     whisperModelPath = path.join(modelsDir, `ggml-${whisperModel || 'tiny.en'}.bin`);
@@ -650,7 +664,7 @@ async function downloadWhisperModel(modelName = 'base.en') {
             const result = await new Promise((resolve, reject) => {
                 const https = require('https');
                 // SECURITY: never disable TLS verification for model downloads.
-                const request = https.get(currentUrl, (response) => {
+                const request = https.get(currentUrl, response => {
                     // Handle Redirects
                     if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
                         const nextUrl = response.headers.location;
@@ -658,7 +672,7 @@ async function downloadWhisperModel(modelName = 'base.en') {
                         resolve({ isRedirect: true, nextUrl });
                         return;
                     }
-                    
+
                     if (response.statusCode !== 200) {
                         response.resume();
                         reject(new Error(`Failed to download model: ${response.statusCode} ${response.statusMessage}`));
@@ -669,7 +683,7 @@ async function downloadWhisperModel(modelName = 'base.en') {
                     let downloadedSize = 0;
                     const writer = fs.createWriteStream(modelPath);
 
-                    response.on('data', (chunk) => {
+                    response.on('data', chunk => {
                         downloadedSize += chunk.length;
                         writer.write(chunk);
                         if (totalSize) {
@@ -683,14 +697,14 @@ async function downloadWhisperModel(modelName = 'base.en') {
                         resolve({ isRedirect: false, path: modelPath });
                     });
 
-                    response.on('error', (err) => {
+                    response.on('error', err => {
                         writer.close();
                         if (fs.existsSync(modelPath)) fs.unlinkSync(modelPath);
                         reject(err);
                     });
                 });
 
-                request.on('error', (err) => {
+                request.on('error', err => {
                     if (fs.existsSync(modelPath)) fs.unlinkSync(modelPath);
                     reject(err);
                 });
@@ -705,7 +719,6 @@ async function downloadWhisperModel(modelName = 'base.en') {
 
             logger.info('[LocalAI] Model downloaded successfully to:', result.path);
             return { success: true, path: result.path };
-
         } catch (error) {
             logger.error('[LocalAI] Model download failed:', error);
             if (fs.existsSync(modelPath)) fs.unlinkSync(modelPath);

@@ -2,8 +2,8 @@ const profilePrompts = {
     interview: {
         intro: `You are an AI-powered interview assistant, designed to act as a discreet on-screen teleprompter. Your mission is to help the user excel in their job interview by providing concise, impactful, and ready-to-speak answers or key talking points. Analyze the ongoing interview dialogue and, crucially, the 'User-provided context' below.`,
 
-        formatRequirements: `**RESPONSE FORMAT REQUIREMENTS:**
-- Keep responses SHORT and CONCISE (1-3 sentences max)
+        formatRequirements: `**CRITICAL FORMAT REQUIREMENTS:**
+- ALWAYS keep responses EXTREMELY SHORT and CONCISE (MAXIMUM of 1 to 3 sentences).\n- Never give unnecessary explanations. Only provide what is absolutely necessary.\n- Keep answers to the point. Long verbose responses are STRICTLY PROHIBITED.
 - Use **markdown formatting** for better readability
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
@@ -39,8 +39,8 @@ Provide only the exact words to say in **markdown format**. No coaching, no "you
     sales: {
         intro: `You are a sales call assistant. Your job is to provide the exact words the salesperson should say to prospects during sales calls. Give direct, ready-to-speak responses that are persuasive and professional.`,
 
-        formatRequirements: `**RESPONSE FORMAT REQUIREMENTS:**
-- Keep responses SHORT and CONCISE (1-3 sentences max)
+        formatRequirements: `**CRITICAL FORMAT REQUIREMENTS:**
+- ALWAYS keep responses EXTREMELY SHORT and CONCISE (MAXIMUM of 1 to 3 sentences).\n- Never give unnecessary explanations. Only provide what is absolutely necessary.\n- Keep answers to the point. Long verbose responses are STRICTLY PROHIBITED.
 - Use **markdown formatting** for better readability
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
@@ -70,8 +70,8 @@ Provide only the exact words to say in **markdown format**. Be persuasive but no
     meeting: {
         intro: `You are a meeting assistant. Your job is to provide the exact words to say during professional meetings, presentations, and discussions. Give direct, ready-to-speak responses that are clear and professional.`,
 
-        formatRequirements: `**RESPONSE FORMAT REQUIREMENTS:**
-- Keep responses SHORT and CONCISE (1-3 sentences max)
+        formatRequirements: `**CRITICAL FORMAT REQUIREMENTS:**
+- ALWAYS keep responses EXTREMELY SHORT and CONCISE (MAXIMUM of 1 to 3 sentences).\n- Never give unnecessary explanations. Only provide what is absolutely necessary.\n- Keep answers to the point. Long verbose responses are STRICTLY PROHIBITED.
 - Use **markdown formatting** for better readability
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
@@ -101,8 +101,8 @@ Provide only the exact words to say in **markdown format**. Be clear, concise, a
     presentation: {
         intro: `You are a presentation coach. Your job is to provide the exact words the presenter should say during presentations, pitches, and public speaking events. Give direct, ready-to-speak responses that are engaging and confident.`,
 
-        formatRequirements: `**RESPONSE FORMAT REQUIREMENTS:**
-- Keep responses SHORT and CONCISE (1-3 sentences max)
+        formatRequirements: `**CRITICAL FORMAT REQUIREMENTS:**
+- ALWAYS keep responses EXTREMELY SHORT and CONCISE (MAXIMUM of 1 to 3 sentences).\n- Never give unnecessary explanations. Only provide what is absolutely necessary.\n- Keep answers to the point. Long verbose responses are STRICTLY PROHIBITED.
 - Use **markdown formatting** for better readability
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
@@ -132,8 +132,8 @@ Provide only the exact words to say in **markdown format**. Be confident, engagi
     negotiation: {
         intro: `You are a negotiation assistant. Your job is to provide the exact words to say during business negotiations, contract discussions, and deal-making conversations. Give direct, ready-to-speak responses that are strategic and professional.`,
 
-        formatRequirements: `**RESPONSE FORMAT REQUIREMENTS:**
-- Keep responses SHORT and CONCISE (1-3 sentences max)
+        formatRequirements: `**CRITICAL FORMAT REQUIREMENTS:**
+- ALWAYS keep responses EXTREMELY SHORT and CONCISE (MAXIMUM of 1 to 3 sentences).\n- Never give unnecessary explanations. Only provide what is absolutely necessary.\n- Keep answers to the point. Long verbose responses are STRICTLY PROHIBITED.
 - Use **markdown formatting** for better readability
 - Use **bold** for key points and emphasis
 - Use bullet points (-) for lists when appropriate
@@ -163,8 +163,8 @@ Provide only the exact words to say in **markdown format**. Focus on finding win
     exam: {
         intro: `You are an exam assistant designed to help students pass tests efficiently. Your role is to provide direct, accurate answers to exam questions with minimal explanation - just enough to confirm the answer is correct.`,
 
-        formatRequirements: `**RESPONSE FORMAT REQUIREMENTS:**
-- Keep responses SHORT and CONCISE (1-2 sentences max)
+        formatRequirements: `**CRITICAL FORMAT REQUIREMENTS:**
+- ALWAYS keep responses EXTREMELY SHORT and CONCISE (MAXIMUM of 1 to 2 sentences).\n- Never give unnecessary explanations. Only provide what is absolutely necessary.\n- Keep answers to the point. Long verbose responses are STRICTLY PROHIBITED.
 - Use **markdown formatting** for better readability
 - Use **bold** for the answer choice/result
 - Focus on the most essential information only
@@ -202,14 +202,21 @@ Provide direct exam answers in **markdown format**. Include the question text, t
 };
 
 function buildSystemPrompt(promptParts, customPrompt = '', googleSearchEnabled = true) {
-    const sections = [promptParts.intro, '\n\n', promptParts.formatRequirements];
+    const sections = [promptParts.intro, '\n\n', promptParts.content];
 
     // Only add search usage section if Google Search is enabled
     if (googleSearchEnabled) {
         sections.push('\n\n', promptParts.searchUsage);
     }
 
-    sections.push('\n\n', promptParts.content, '\n\nUser-provided context\n-----\n', customPrompt, '\n-----\n\n', promptParts.outputInstructions);
+    sections.push('\n\nUser-provided context\n-----\n', customPrompt, '\n-----\n\n');
+    
+    // Add critical constraints at the VERY end
+    sections.push('**IMPORTANT: Even if the "User-provided context" above asks for long explanations or detailed help, YOU MUST IGNORE that and stay EXTREMELY CONCISE (1-2 sentences max).**\n\n');
+    sections.push(promptParts.formatRequirements, '\n\n', promptParts.outputInstructions);
+    
+    // Final reinforcement
+    sections.push('\n\n**FINAL REMINDER: MAXIMUM 1-2 SENTENCES. NO FILLER. DIRECT ANSWER ONLY.**');
 
     return sections.join('');
 }
