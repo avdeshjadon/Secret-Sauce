@@ -9,23 +9,18 @@ module.exports = {
         extraResource: ['./src/assets/bin/SystemAudioDump'],
         name: 'Secret Sauce',
         icon: 'src/assets/icons/logo',
-        // use `security find-identity -v -p codesigning` to find your identity
-        // for macos signing
-        // also fuck apple
-        // osxSign: {
-        //    identity: '<paste your identity here>',
-        //   optionsForFile: (filePath) => {
-        //       return {
-        //           entitlements: 'entitlements.plist',
-        //       };
-        //   },
-        // },
-        // notarize if off cuz i ran this for 6 hours and it still didnt finish
-        // osxNotarize: {
-        //    appleId: 'your apple id',
-        //    appleIdPassword: 'app specific password',
-        //    teamId: 'your team id',
-        // },
+        
+        // CRITICAL MAC FIX: Ad-Hoc Signing (FREE)
+        // We omit the 'identity' field so it doesn't ask for a paid Apple account,
+        // but we MUST keep optionsForFile so your entitlements.plist gets attached.
+        // Without this, macOS will silently block microphone and screen capture!
+        osxSign: {
+            optionsForFile: (filePath) => {
+                return {
+                    entitlements: 'entitlements.plist',
+                };
+            },
+        },
     },
     rebuildConfig: {},
     makers: [
@@ -63,15 +58,16 @@ module.exports = {
             name: '@electron-forge/plugin-auto-unpack-natives',
             config: {},
         },
-        // Fuses are used to enable/disable various Electron functionality
-        // at package time, before code signing the application
         new FusesPlugin({
             version: FuseVersion.V1,
             [FuseV1Options.RunAsNode]: false,
             [FuseV1Options.EnableCookieEncryption]: true,
             [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
             [FuseV1Options.EnableNodeCliInspectArguments]: false,
-            // These two MUST be false for unsigned apps — otherwise app crashes on launch
+            
+            // CRITICAL FOR FREE DISTRIBUTION: 
+            // Because the app is unsigned (ad-hoc), these MUST be false. 
+            // If they are true, macOS will kill the app on launch.
             [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
             [FuseV1Options.OnlyLoadAppFromAsar]: false,
         }),

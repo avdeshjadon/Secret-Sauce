@@ -195,7 +195,7 @@ export class SecretSauceApp extends LitElement {
             margin: 0 var(--space-sm) var(--space-md) var(--space-sm);
             padding: var(--space-sm) var(--space-md);
             background: var(--accent);
-            color: white;
+            color: var(--btn-primary-text);
             border: none;
             border-radius: var(--radius-md);
             font-size: var(--font-size-sm);

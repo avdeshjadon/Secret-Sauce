@@ -105,7 +105,7 @@ export class TemplatesView extends LitElement {
             }
             .btn-primary {
                 background: var(--accent);
-                color: white;
+                color: var(--btn-primary-text);
                 border: none;
             }
             .btn-primary:hover {
@@ -269,7 +269,7 @@ export class TemplatesView extends LitElement {
                                     <div class="template-header">
                                         <span class="template-name">${t.name}</span>
                                         ${this.activeTemplateId === t.id
-                                            ? html`<span class="chip" style="background: var(--accent); color: white;">Active</span>`
+                                            ? html`<span class="chip" style="background: var(--accent); color: var(--btn-primary-text);">Active</span>`
                                             : ''}
                                     </div>
                                     <div class="template-preview">${t.content}</div>

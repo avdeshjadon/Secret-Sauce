@@ -220,8 +220,8 @@ export class MainView extends LitElement {
         .start-button {
             position: relative;
             overflow: hidden;
-            background: #e8e8e8;
-            color: #111111;
+            background: var(--accent);
+            color: var(--btn-primary-text);
             border: none;
             padding: 12px var(--space-md);
             border-radius: var(--radius-sm);
@@ -473,8 +473,8 @@ export class MainView extends LitElement {
         }
 
         .help-cloud-btn {
-            background: #e8e8e8;
-            color: #111111;
+            background: var(--bg-elevated);
+            color: var(--text-primary);
             border: none;
             padding: 10px var(--space-md);
             border-radius: var(--radius-sm);

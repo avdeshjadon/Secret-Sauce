@@ -115,9 +115,9 @@ export class OnboardingView extends LitElement {
         }
 
         .btn-primary {
-            background: #111111;
+            background: var(--accent);
             border: none;
-            color: #ffffff;
+            color: var(--btn-primary-text);
             padding: 10px 32px;
             border-radius: 8px;
             font-size: 13px;
@@ -337,7 +337,8 @@ export class OnboardingView extends LitElement {
             const h = canvas.height;
             const dim = Math.min(w, h);
 
-            ctx.fillStyle = '#f0f0f0';
+            const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim() || '#f0f0f0';
+            ctx.fillStyle = bg;
             ctx.fillRect(0, 0, w, h);
 
             for (const blob of blobs) {
