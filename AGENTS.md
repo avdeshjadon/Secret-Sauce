@@ -1,6 +1,6 @@
 # Repo Guidelines
 
-This repository is a fork of [`secret-sauce`](https://github.com/avdeshjadon/secret-sauce).
+This repository is a fork of [`cheating-daddy`](https://github.com/sohzm/cheating-daddy).
 It provides an Electron-based real‑time assistant which captures screen and audio
 for contextual AI responses. The code is JavaScript and uses Electron Forge for
 packaging.
@@ -21,28 +21,6 @@ Run `npx prettier --write .` before committing. Prettier uses the settings in
 quotes). `src/assets` and `node_modules` are ignored via `.prettierignore`.
 The project does not provide linting; `npm run lint` simply prints
 "No linting configured".
-
-## Production readiness expectations
-
-This app captures screen/audio and processes sensitive content. “Production ready”
-means **secure defaults**, **predictable IPC**, and **no silent security bypasses**.
-
-- **Renderer security**: keep `contextIsolation: true`, `nodeIntegration: false`.
-- **IPC contract**:
-  - Renderer must use `window.electronAPI` only (from `preload.js`).
-  - Main process must whitelist + validate every IPC channel + payload.
-  - Any new channel must be added to `preload.js` allowlists and implemented in main.
-- **No insecure TLS by default**:
-  - Never set `NODE_TLS_REJECT_UNAUTHORIZED=0` unconditionally.
-  - Dev-only escape hatch is allowed via `ALLOW_INSECURE_TLS=1`.
-- **XSS protection**:
-  - Never render AI/user content directly with `innerHTML` without sanitizing.
-  - Keep CSP strict (no inline scripts).
-
-### Supported environment variables
-
-- `ALLOW_INSECURE_TLS=1`: Dev-only. Disables TLS verification.
-- `SYSTEM_AUDIO_DUMP_SHA256=<sha256>`: Optional macOS helper integrity check.
 
 ## Code standards
 
@@ -81,7 +59,7 @@ merging upstream changes.
 
 ## Merging upstream PRs
 
-Pull requests from <https://github.com/avdeshjadon/secret-sauce> are commonly
+Pull requests from <https://github.com/sohzm/cheating-daddy> are commonly
 cherry‑picked here. When merging:
 
 1. Inspect the diff and keep commit messages short (`feat:` / `fix:` etc.).
@@ -111,6 +89,7 @@ uses Electron. Key goals are:
 
 ### TODO
 
+1. Research and prototype local transcription using `whisper.cpp`.
 2. Add dual‑stream audio capture logic for cross‑platform support.
 3. Investigate speaker diarization options and integrate when feasible.
 4. Plan a migration path toward a proper testing setup (Jest or similar).
