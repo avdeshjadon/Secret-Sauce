@@ -268,10 +268,11 @@ async function initializeLocal(profile = 'interview') {
     const ollamaHost = prefs.ollamaHost || 'http://127.0.0.1:11434';
     const ollamaModel = prefs.ollamaModel || 'llama3.1';
     const whisperModel = prefs.whisperModel || 'tiny.en';
+    const transformersModel = prefs.transformersModel || 'tiny.en';
     const customPrompt = prefs.customPrompt || '';
-    console.log(`[LocalAI] Initializing with model: ${whisperModel}`);
+    console.log(`[LocalAI] Initializing with Whisper: ${whisperModel}, Transformers: ${transformersModel}`);
 
-    const success = await window.electronAPI.invoke('initialize-local', ollamaHost, ollamaModel, whisperModel, profile, customPrompt);
+    const success = await window.electronAPI.invoke('initialize-local', ollamaHost, ollamaModel, whisperModel, profile, customPrompt, transformersModel);
     if (success) {
         secretSauce.setStatus('Local AI Live');
         return true;

@@ -29,7 +29,6 @@ const DEFAULT_PREFERENCES = {
     audioMode: 'speaker_only',
     fontSize: 20,
     backgroundTransparency: 0.8,
-    googleSearchEnabled: false,
     ollamaHost: 'http://127.0.0.1:11434',
     ollamaModel: 'llama3.1',
     whisperModel: 'tiny.en',

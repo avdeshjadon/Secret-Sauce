@@ -31,8 +31,16 @@ const VALID_INVOKE_CHANNELS = new Set([
     'get-desktop-sources',
     'download-whisper-model',
     'check-whisper-model-exists',
+    'list-whisper-models',
     'delete-whisper-model',
     'update-active-profile',
+    'list-local-models',
+    'download-transformers-model',
+    'check-transformers-model-exists',
+    'clear-transformers-model-cache',
+    'pull-ollama-model',
+    'delete-ollama-model',
+    'clear-all-local-data',
 
     // Storage — Config
     'storage:get-config',
@@ -75,6 +83,9 @@ const VALID_INVOKE_CHANNELS = new Set([
     'open-external',
     'toggle-window-visibility',
     'window-minimize',
+    'get-platform',
+    'pause-whisper-download',
+    'check-whisper-partial-exists',
 ]);
 
 const VALID_SEND_CHANNELS = new Set([

@@ -38,6 +38,31 @@ export class CustomizeView extends LitElement {
                 transform: rotate(45deg);
             }
 
+            textarea.control {
+                width: 100%;
+                min-height: 100px;
+                resize: vertical;
+                line-height: 1.45;
+            }
+
+            .model-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            @media (max-width: 480px) {
+                .model-row {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+                .control {
+                    width: 100% !important;
+                }
+            }
+
             .toggle-row {
                 display: flex;
                 align-items: center;
@@ -115,55 +140,6 @@ export class CustomizeView extends LitElement {
                 border: none;
             }
 
-            .keybind-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: var(--space-lg);
-            }
-
-            .os-column {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .os-title {
-                font-size: var(--font-size-sm);
-                font-weight: var(--font-weight-semibold);
-                color: var(--text-primary);
-                margin-bottom: var(--space-xs);
-                border-bottom: 1px solid var(--border);
-                padding-bottom: 8px;
-            }
-
-            .keybind-row {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: var(--space-sm) 0;
-                border-bottom: 1px solid var(--border);
-            }
-
-            .keybind-row:last-of-type {
-                border-bottom: none;
-            }
-
-            @media (max-width: 820px) {
-                .keybind-grid {
-                    grid-template-columns: 1fr;
-                }
-            }
-
-            .keybind-name {
-                color: var(--text-secondary);
-                font-size: var(--font-size-sm);
-            }
-
-            .keybind-input {
-                width: 140px;
-                text-align: center;
-                font-family: var(--font-mono);
-                font-size: var(--font-size-xs);
-            }
 
             .danger-button {
                 border: 1px solid rgba(239, 68, 68, 0.4);
@@ -202,6 +178,15 @@ export class CustomizeView extends LitElement {
                 border-color: var(--danger);
                 color: var(--danger);
             }
+            .page-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-bottom: var(--space-lg);
+            }
+            .page-title-group {
+                flex: 1;
+            }
         `,
     ];
 
@@ -211,7 +196,6 @@ export class CustomizeView extends LitElement {
         selectedImageQuality: { type: String },
         layoutMode: { type: String },
         keybinds: { type: Object },
-        googleSearchEnabled: { type: Boolean },
         backgroundTransparency: { type: Number },
         fontSize: { type: Number },
         theme: { type: String },
@@ -227,6 +211,7 @@ export class CustomizeView extends LitElement {
         whisperModel: { type: String },
         whisperStatus: { type: Object, state: true },
         downloadProgress: { type: Number, state: true },
+        mode: { type: String },
     };
 
     constructor() {
@@ -235,25 +220,23 @@ export class CustomizeView extends LitElement {
         this.selectedLanguage = 'en-US';
         this.selectedImageQuality = 'medium';
         this.layoutMode = 'normal';
-        this.keybinds = this.getDefaultKeybinds();
         this.onProfileChange = () => {};
         this.onLanguageChange = () => {};
         this.onImageQualityChange = () => {};
         this.onLayoutModeChange = () => {};
-        this.googleSearchEnabled = true;
         this.isClearing = false;
-        this.isRestoring = false;
-        this.clearStatusMessage = '';
-        this.clearStatusType = '';
-        this.backgroundTransparency = 0.8;
-        this.fontSize = 20;
         this.audioMode = 'speaker_only';
         this.customPrompt = '';
         this.theme = 'dark';
         this.transcriptionEngine = 'gemini';
         this.whisperModel = 'tiny.en';
+        this.transformersModel = 'tiny.en';
         this.whisperStatus = {};
+        this.transformersStatus = {};
         this.downloadProgress = 0;
+        this.downloadingModel = '';
+        this.downloadingType = ''; // 'cpp' or 'transformers'
+        this.isDownloadingAll = false;
         this._loadFromStorage();
     }
 
@@ -264,28 +247,30 @@ export class CustomizeView extends LitElement {
     async _loadFromStorage() {
         try {
             const [prefs, keybinds] = await Promise.all([secretSauce.storage.getPreferences(), secretSauce.storage.getKeybinds()]);
-            this.googleSearchEnabled = prefs.googleSearchEnabled ?? true;
             this.backgroundTransparency = prefs.backgroundTransparency ?? 0.8;
             this.fontSize = prefs.fontSize ?? 20;
             this.audioMode = prefs.audioMode ?? 'speaker_only';
             this.customPrompt = prefs.customPrompt ?? '';
             this.theme = prefs.theme ?? 'dark';
+            this.mode = prefs.providerMode ?? 'byok';
             this.transcriptionEngine = prefs.transcriptionEngine ?? 'gemini';
-            this.whisperModel = prefs.whisperModel ?? 'tiny.en';
-            
-            if (keybinds) {
-                this.keybinds = { ...this.getDefaultKeybinds(), ...keybinds };
-                const isMac = secretSauce.isMacOS || navigator.platform.includes('Mac');
-                const prefix = isMac ? 'mac_' : 'win_';
-                Object.keys(keybinds).forEach(key => {
-                    if (!key.startsWith('mac_') && !key.startsWith('win_')) {
-                        this.keybinds[prefix + key] = keybinds[key];
-                    }
-                });
+
+            // Force whisper in local mode
+            if (this.mode === 'local' && this.transcriptionEngine !== 'whisper') {
+                this.transcriptionEngine = 'whisper';
+                secretSauce.storage.updatePreference('transcriptionEngine', 'whisper');
             }
+
+            this.whisperModel = prefs.whisperModel ?? 'tiny.en';
+            this.transformersModel = prefs.transformersModel ?? 'tiny.en';
+            
             this.updateBackgroundAppearance();
             this.updateFontSize();
-            this._checkWhisperModels();
+            await this._checkAllModels();
+            
+            // Auto-select smallest downloaded model if current is missing
+            this._autoSelectSmallestModels();
+            
             this.requestUpdate();
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -294,10 +279,15 @@ export class CustomizeView extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
+        this._loadFromStorage();
         this._unsubProgress = secretSauce.on('whisper-download-progress', (data) => {
             this.downloadProgress = data.progress;
             if (data.progress === 100) {
-                setTimeout(() => this._checkWhisperModels(), 1000);
+                if (!this.isDownloadingAll) {
+                    this.downloadingModel = '';
+                    this.downloadingType = '';
+                }
+                setTimeout(() => this._checkAllModels(), 1000);
             }
             this.requestUpdate();
         });
@@ -308,14 +298,48 @@ export class CustomizeView extends LitElement {
         if (this._unsubProgress) this._unsubProgress();
     }
 
-    async _checkWhisperModels() {
-        const models = ['tiny.en', 'base.en', 'small.en', 'medium.en'];
-        const status = {};
-        for (const m of models) {
-            status[m] = await secretSauce.invoke('check-whisper-model-exists', m);
-        }
-        this.whisperStatus = status;
+    async _checkAllModels() {
+        const models = ['tiny.en', 'base.en', 'small.en'];
+        const wStatus = {};
+        const tStatus = {};
+        
+        const checks = await Promise.all([
+            ...models.map(m => secretSauce.invoke('check-whisper-model-exists', m)),
+            ...models.map(m => secretSauce.invoke('check-transformers-model-exists', m))
+        ]);
+
+        models.forEach((m, i) => {
+            wStatus[m] = checks[i];
+            tStatus[m] = checks[i + models.length];
+        });
+
+        this.whisperStatus = wStatus;
+        this.transformersStatus = tStatus;
         this.requestUpdate();
+    }
+
+    _autoSelectSmallestModels() {
+        const order = ['tiny.en', 'base.en', 'small.en'];
+        
+        // Whisper CPP
+        if (!this.whisperStatus[this.whisperModel]) {
+            const best = order.find(m => this.whisperStatus[m]);
+            if (best && best !== this.whisperModel) {
+                this.whisperModel = best;
+                secretSauce.storage.updatePreference('whisperModel', best);
+                console.log(`[Customize] Auto-switched Whisper model to ${best}`);
+            }
+        }
+
+        // Transformers
+        if (!this.transformersStatus[this.transformersModel]) {
+            const best = order.find(m => this.transformersStatus[m]);
+            if (best && best !== this.transformersModel) {
+                this.transformersModel = best;
+                secretSauce.storage.updatePreference('transformersModel', best);
+                console.log(`[Customize] Auto-switched Transformers model to ${best}`);
+            }
+        }
     }
 
     async handleTranscriptionEngineChange(e) {
@@ -329,41 +353,60 @@ export class CustomizeView extends LitElement {
         const model = e.target.value;
         this.whisperModel = model;
         await secretSauce.storage.updatePreference('whisperModel', model);
-        // Re-check status just to be sure
-        await this._checkWhisperModels();
         this.requestUpdate();
     }
 
-    async handleDownloadModel() {
+    async handleTransformersModelSelect(e) {
+        const model = e.target.value;
+        this.transformersModel = model;
+        await secretSauce.storage.updatePreference('transformersModel', model);
+        this.requestUpdate();
+    }
+
+    async handleDownloadModel(type = 'cpp') {
         if (this.downloadProgress > 0 && this.downloadProgress < 100) return;
         
+        const modelToDownload = type === 'cpp' ? this.whisperModel : this.transformersModel;
+        this.downloadingModel = modelToDownload;
+        this.downloadingType = type;
+
         try {
             this.downloadProgress = 1;
-            const result = await secretSauce.invoke('download-whisper-model', this.whisperModel);
+            const channel = type === 'cpp' ? 'download-whisper-model' : 'download-transformers-model';
+            const result = await secretSauce.invoke(channel, modelToDownload);
             if (result.success) {
-                await this._checkWhisperModels();
-                this.downloadProgress = 0;
-            } else {
-                alert('Download failed: ' + result.error);
-                this.downloadProgress = 0;
+                await this._checkAllModels();
+            }
+            if (!result.success) {
+                await window.secretSauce.alert('Download failed: ' + result.error, 'Download Error');
             }
         } catch (err) {
-            alert('Download error: ' + err.message);
-            this.downloadProgress = 0;
+            await window.secretSauce.alert('Download error: ' + err.message, 'System Error');
+        } finally {
+            if (!this.isDownloadingAll) {
+                this.downloadProgress = 0;
+                this.downloadingModel = '';
+                this.downloadingType = '';
+            }
         }
     }
 
-    async handleDeleteModel(modelName) {
-        if (confirm(`Are you sure you want to delete the ${modelName} model?`)) {
+
+    async handleDeleteModel(modelName, type = 'cpp') {
+        const title = type === 'cpp' ? 'Whisper model' : 'Transformers model';
+        const confirmed = await window.secretSauce.confirm(`Are you sure you want to delete the ${modelName} ${title}?`, 'Delete Model');
+        if (confirmed) {
             try {
-                const result = await secretSauce.invoke('delete-whisper-model', modelName);
+                const channel = type === 'cpp' ? 'delete-whisper-model' : 'clear-transformers-model-cache';
+                const result = await secretSauce.invoke(channel, modelName);
                 if (result.success) {
-                    await this._checkWhisperModels();
-                } else {
-                    alert('Delete failed: ' + result.error);
+                    await this._checkAllModels();
+                }
+                if (!result.success) {
+                    await window.secretSauce.alert('Delete failed: ' + result.error, 'Error');
                 }
             } catch (err) {
-                alert('Delete error: ' + err.message);
+                await window.secretSauce.alert('Delete error: ' + err.message, 'System Error');
             }
         }
     }
@@ -414,53 +457,8 @@ export class CustomizeView extends LitElement {
         ];
     }
 
-    getDefaultKeybinds() {
-        return {
-            mac_moveUp: 'Option+Up',
-            win_moveUp: 'Ctrl+Up',
-            mac_moveDown: 'Option+Down',
-            win_moveDown: 'Ctrl+Down',
-            mac_moveLeft: 'Option+Left',
-            win_moveLeft: 'Ctrl+Left',
-            mac_moveRight: 'Option+Right',
-            win_moveRight: 'Ctrl+Right',
-            mac_toggleVisibility: 'Cmd+\\',
-            win_toggleVisibility: 'Ctrl+\\',
-            mac_toggleClickThrough: 'Cmd+M',
-            win_toggleClickThrough: 'Ctrl+M',
-            mac_nextStep: 'Cmd+Enter',
-            win_nextStep: 'Ctrl+Enter',
-            mac_previousResponse: 'Cmd+[',
-            win_previousResponse: 'Ctrl+[',
-            mac_nextResponse: 'Cmd+]',
-            win_nextResponse: 'Ctrl+]',
-            mac_scrollUp: 'Cmd+Shift+Up',
-            win_scrollUp: 'Ctrl+Shift+Up',
-            mac_scrollDown: 'Cmd+Shift+Down',
-            win_scrollDown: 'Ctrl+Shift+Down',
-        };
-    }
 
-    getKeybindActions() {
-        return [
-            { key: 'moveUp', name: 'Move Window Up', description: 'Move the app window up' },
-            { key: 'moveDown', name: 'Move Window Down', description: 'Move the app window down' },
-            { key: 'moveLeft', name: 'Move Window Left', description: 'Move the app window left' },
-            { key: 'moveRight', name: 'Move Window Right', description: 'Move the app window right' },
-            { key: 'toggleVisibility', name: 'Toggle Visibility', description: 'Show or hide the app window' },
-            { key: 'toggleClickThrough', name: 'Toggle Click-through', description: 'Enable or disable click-through mode' },
-            { key: 'nextStep', name: 'Ask Next Step', description: 'Take screenshot and ask for next step' },
-            { key: 'previousResponse', name: 'Previous Response', description: 'Move to previous AI response' },
-            { key: 'nextResponse', name: 'Next Response', description: 'Move to next AI response' },
-            { key: 'scrollUp', name: 'Scroll Response Up', description: 'Scroll response content upward' },
-            { key: 'scrollDown', name: 'Scroll Response Down', description: 'Scroll response content downward' },
-        ];
-    }
 
-    async saveKeybinds() {
-        await secretSauce.storage.setKeybinds(this.keybinds);
-        window.electronAPI.send('update-keybinds', this.keybinds);
-    }
 
     handleProfileSelect(e) {
         this.selectedProfile = e.target.value;
@@ -500,16 +498,6 @@ export class CustomizeView extends LitElement {
         this.requestUpdate();
     }
 
-    async handleGoogleSearchChange(e) {
-        this.googleSearchEnabled = e.target.checked;
-        await secretSauce.storage.updatePreference('googleSearchEnabled', this.googleSearchEnabled);
-        try {
-            await secretSauce.invoke('update-google-search-setting', this.googleSearchEnabled);
-        } catch (error) {
-            console.error('Failed to notify main process:', error);
-        }
-        this.requestUpdate();
-    }
 
     async handleBackgroundTransparencyChange(e) {
         this.backgroundTransparency = parseFloat(e.target.value);
@@ -534,68 +522,8 @@ export class CustomizeView extends LitElement {
         document.documentElement.style.setProperty('--response-font-size', `${this.fontSize}px`);
     }
 
-    handleKeybindChange(action, value) {
-        this.keybinds = { ...this.keybinds, [action]: value };
-        this.saveKeybinds();
-        this.requestUpdate();
-    }
 
-    handleKeybindFocus(e) {
-        e.target.placeholder = 'Press key combination...';
-        e.target.select();
-    }
 
-    handleKeybindInput(e) {
-        e.preventDefault();
-        const action = e.target.dataset.action;
-        const modifiers = [];
-        if (e.ctrlKey) modifiers.push('Ctrl');
-        if (e.metaKey) modifiers.push('Cmd');
-        if (e.altKey) modifiers.push(action && action.startsWith('mac_') ? 'Option' : 'Alt');
-        if (e.shiftKey) modifiers.push('Shift');
-        let mainKey = e.key;
-
-        switch (e.code) {
-            case 'ArrowUp':
-                mainKey = 'Up';
-                break;
-            case 'ArrowDown':
-                mainKey = 'Down';
-                break;
-            case 'ArrowLeft':
-                mainKey = 'Left';
-                break;
-            case 'ArrowRight':
-                mainKey = 'Right';
-                break;
-            case 'Enter':
-                mainKey = 'Enter';
-                break;
-            case 'Space':
-                mainKey = 'Space';
-                break;
-            case 'Backslash':
-                mainKey = '\\';
-                break;
-            default:
-                if (e.key.length === 1) mainKey = e.key.toUpperCase();
-                break;
-        }
-
-        if (['Control', 'Meta', 'Alt', 'Shift', 'Option'].includes(e.key)) return;
-
-        const keybind = [...modifiers, mainKey].join('+');
-        this.handleKeybindChange(action, keybind);
-        e.target.value = keybind;
-        e.target.blur();
-    }
-
-    async resetKeybinds() {
-        this.keybinds = this.getDefaultKeybinds();
-        await secretSauce.storage.setKeybinds(null);
-        window.electronAPI.send('update-keybinds', this.keybinds);
-        this.requestUpdate();
-    }
 
     async restoreAllSettings() {
         if (this.isRestoring) return;
@@ -615,7 +543,6 @@ export class CustomizeView extends LitElement {
                 transcriptionEngine: 'gemini',
                 fontSize: 20,
                 backgroundTransparency: 0.8,
-                googleSearchEnabled: false,
                 theme: 'dark',
             };
             for (const [key, value] of Object.entries(defaults)) {
@@ -635,7 +562,6 @@ export class CustomizeView extends LitElement {
             this.transcriptionEngine = defaults.transcriptionEngine;
             this.fontSize = defaults.fontSize;
             this.backgroundTransparency = defaults.backgroundTransparency;
-            this.googleSearchEnabled = defaults.googleSearchEnabled;
             this.customPrompt = defaults.customPrompt;
             this.theme = defaults.theme;
 
@@ -696,7 +622,6 @@ export class CustomizeView extends LitElement {
             { value: 'tiny.en', label: 'Tiny (Fastest, ~75MB)' },
             { value: 'base.en', label: 'Base (Balanced, ~140MB)' },
             { value: 'small.en', label: 'Small (Better accuracy, ~460MB)' },
-            { value: 'medium.en', label: 'Medium (Best accuracy, ~1.5GB)' },
         ];
 
         const isDownloaded = this.whisperStatus[this.whisperModel];
@@ -707,54 +632,103 @@ export class CustomizeView extends LitElement {
                 <div class="form-grid">
                     <div class="form-group">
                         <label class="form-label">Preferred Engine</label>
-                        <select class="control" .value=${this.transcriptionEngine} @change=${this.handleTranscriptionEngineChange}>
-                            <option value="gemini">Gemini (Cloud - Fast & Accurate)</option>
-                            <option value="whisper">Whisper (Local - Private & Offline)</option>
-                        </select>
+                        ${this.mode === 'local' ? html`
+                            <div class="control" style="background: var(--bg-hover); display: flex; align-items: center; border-color: transparent; cursor: default;">
+                                Whisper Model
+                            </div>
+                        ` : html`
+                            <select class="control" .value=${this.transcriptionEngine} @change=${this.handleTranscriptionEngineChange}>
+                                <option value="gemini">Gemini (Cloud - Fast & Accurate)</option>
+                                <option value="whisper">Whisper (Local - Private & Offline)</option>
+                            </select>
+                        `}
                         <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
-                            Whisper runs entirely on your device for maximum privacy. Gemini requires an active internet connection.
+                            ${this.mode === 'local' 
+                                ? 'In Local AI mode, transcription is always handled privately on your device.' 
+                                : 'Whisper runs on your device for privacy. Gemini requires cloud connectivity.'}
                         </p>
                     </div>
 
-                    ${this.transcriptionEngine === 'whisper' ? html`
-                        <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
-                            <label class="form-label">Whisper Model</label>
-                            <div style="display: flex; gap: 8px;">
-                                <select class="control" style="flex: 1;" .value=${this.whisperModel} @change=${this.handleWhisperModelSelect}>
+                        <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); flex-direction: column; align-items: stretch;">
+                            <label class="form-label" style="margin-bottom: 8px;">Whisper Model (Main Engine)</label>
+                            <div class="model-row">
+                                <select class="control" style="flex: 1; min-width: 150px;" .value=${this.whisperModel} @change=${this.handleWhisperModelSelect}>
                                     ${models.map(m => html`
                                         <option value=${m.value}>
                                             ${m.label} ${this.whisperStatus[m.value] ? '✓' : ''}
                                         </option>
                                     `)}
                                 </select>
-                                <button 
-                                    class="control" 
-                                    style="width: auto; padding: 0 16px; background: ${isDownloaded ? 'var(--bg-elevated)' : 'var(--accent)'}; color: ${isDownloaded ? 'var(--text-secondary)' : 'var(--btn-primary-text)'}"
-                                    @click=${this.handleDownloadModel}
-                                    ?disabled=${isDownloaded || (this.downloadProgress > 0 && this.downloadProgress < 100)}
-                                >
-                                    ${this.downloadProgress > 0 && this.downloadProgress < 100 
-                                        ? `Downloading ${this.downloadProgress}%` 
-                                        : (isDownloaded ? 'Downloaded' : 'Download')}
-                                </button>
-                                ${isDownloaded ? html`
+                                <div style="display: flex; gap: 8px;">
                                     <button 
                                         class="control" 
-                                        style="width: auto; padding: 0 10px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);"
-                                        @click=${() => this.handleDeleteModel(this.whisperModel)}
-                                        title="Delete Model"
+                                        style="width: auto; padding: 0 16px; height: 38px; display: flex; align-items: center; justify-content: center; background: ${this.whisperStatus[this.whisperModel] ? 'var(--bg-elevated)' : 'var(--accent)'}; color: ${this.whisperStatus[this.whisperModel] ? 'var(--text-secondary)' : 'var(--btn-primary-text)'}"
+                                        @click=${() => this.handleDownloadModel('cpp')}
+                                        ?disabled=${this.whisperStatus[this.whisperModel] || (this.downloadProgress > 0 && (this.downloadingModel === this.whisperModel && this.downloadingType === 'cpp'))}
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
+                                        ${this.downloadProgress > 0 && this.downloadingModel === this.whisperModel && this.downloadingType === 'cpp'
+                                            ? `Downloading ${this.downloadProgress}%` 
+                                            : (this.whisperStatus[this.whisperModel] ? 'Downloaded' : 'Download')}
                                     </button>
-                                ` : ''}
+                                    ${this.whisperStatus[this.whisperModel] ? html`
+                                        <button 
+                                            class="control" 
+                                            style="width: auto; padding: 0 10px; height: 38px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);"
+                                            @click=${() => this.handleDeleteModel(this.whisperModel, 'cpp')}
+                                            title="Delete Model"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
+                                        </button>
+                                    ` : ''}
+                                </div>
                             </div>
                             <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
-                                ${isDownloaded 
+                                ${this.whisperStatus[this.whisperModel] && (this.downloadProgress === 0 || this.downloadingModel !== this.whisperModel || this.downloadingType !== 'cpp')
                                     ? html`<span style="color: var(--success)">● Downloaded</span>. You are ready to use local transcription.` 
                                     : 'Model not found. Download it to enable local transcription.'}
                             </p>
                         </div>
-                    ` : ''}
+
+                        <div class="form-group" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); flex-direction: column; align-items: stretch;">
+                            <label class="form-label" style="margin-bottom: 8px;">Transformers Model (Offline Fallback)</label>
+                            <div class="model-row">
+                                <select class="control" style="flex: 1; min-width: 150px;" .value=${this.transformersModel} @change=${this.handleTransformersModelSelect}>
+                                    ${models.map(m => html`
+                                        <option value=${m.value}>
+                                            ${m.label} ${this.transformersStatus[m.value] ? '✓' : ''}
+                                        </option>
+                                    `)}
+                                </select>
+                                <div style="display: flex; gap: 8px;">
+                                    <button 
+                                        class="control" 
+                                        style="width: auto; padding: 0 16px; height: 38px; display: flex; align-items: center; justify-content: center; background: ${this.transformersStatus[this.transformersModel] ? 'var(--bg-elevated)' : 'var(--accent)'}; color: ${this.transformersStatus[this.transformersModel] ? 'var(--text-secondary)' : 'var(--btn-primary-text)'}"
+                                        @click=${() => this.handleDownloadModel('transformers')}
+                                        ?disabled=${this.transformersStatus[this.transformersModel] || (this.downloadProgress > 0 && (this.downloadingModel === this.transformersModel && this.downloadingType === 'transformers'))}
+                                    >
+                                        ${this.downloadProgress > 0 && this.downloadingModel === this.transformersModel && this.downloadingType === 'transformers'
+                                            ? `Downloading ${this.downloadProgress}%` 
+                                            : (this.transformersStatus[this.transformersModel] ? 'Downloaded' : 'Download')}
+                                    </button>
+                                    ${this.transformersStatus[this.transformersModel] ? html`
+                                        <button 
+                                            class="control" 
+                                            style="width: auto; padding: 0 10px; height: 38px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);"
+                                            @click=${() => this.handleDeleteModel(this.transformersModel, 'transformers')}
+                                            title="Delete Model"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+                                ${this.transformersStatus[this.transformersModel] && (this.downloadProgress === 0 || this.downloadingModel !== this.transformersModel || this.downloadingType !== 'transformers')
+                                    ? html`<span style="color: var(--success)">● Downloaded</span>. 100% offline fallback ready.` 
+                                    : 'Transformers model not cached. Recommended for privacy & reliability.'}
+                            </p>
+                        </div>
+
                 </div>
             </section>
         `;
@@ -853,79 +827,31 @@ export class CustomizeView extends LitElement {
 
     renderKeyboardSection() {
         return html`
-            <section class="surface">
-                <div class="surface-title">Keyboard Shortcuts</div>
-                <div class="keybind-grid">
-                    <div class="os-column">
-                        <div class="os-title">Mac</div>
-                        ${this.getKeybindActions().map(
-                            action => html`
-                                <div class="keybind-row">
-                                    <span class="keybind-name">${action.name}</span>
-                                    <input
-                                        type="text"
-                                        class="control keybind-input"
-                                        .value=${this.keybinds['mac_' + action.key] || ''}
-                                        data-action="mac_${action.key}"
-                                        @keydown=${this.handleKeybindInput}
-                                        @focus=${this.handleKeybindFocus}
-                                        readonly
-                                    />
-                                </div>
-                            `
-                        )}
-                    </div>
-                    <div class="os-column">
-                        <div class="os-title">Windows</div>
-                        ${this.getKeybindActions().map(
-                            action => html`
-                                <div class="keybind-row">
-                                    <span class="keybind-name">${action.name}</span>
-                                    <input
-                                        type="text"
-                                        class="control keybind-input"
-                                        .value=${this.keybinds['win_' + action.key] || ''}
-                                        data-action="win_${action.key}"
-                                        @keydown=${this.handleKeybindInput}
-                                        @focus=${this.handleKeybindFocus}
-                                        readonly
-                                    />
-                                </div>
-                            `
-                        )}
-                    </div>
-                </div>
-                <div style="margin-top: var(--space-sm);">
-                    <button class="control" style="width:auto;padding:8px 10px;" @click=${this.resetKeybinds}>Reset to defaults</button>
-                </div>
-            </section>
         `;
     }
 
-    renderResetSection() {
-        return html`
-            <section class="surface danger-surface">
-                <div class="surface-title danger">Reset Settings</div>
-                <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;">
-                    <button class="danger-button" @click=${this.restoreAllSettings} ?disabled=${this.isRestoring}>
-                        ${this.isRestoring ? 'Restoring...' : 'Restore all settings'}
-                    </button>
-                </div>
-                ${this.clearStatusMessage
-                    ? html` <div class="status ${this.clearStatusType === 'success' ? 'success' : 'error'}">${this.clearStatusMessage}</div> `
-                    : ''}
-            </section>
-        `;
-    }
 
     render() {
         return html`
             <div class="unified-page">
                 <div class="unified-wrap">
-                    <div class="page-title">Settings</div>
+                    <div class="page-header">
+                        <div class="page-title-group">
+                            <div class="page-title">Settings</div>
+                        </div>
+                        <button class="danger-button" @click=${this.restoreAllSettings} ?disabled=${this.isRestoring}>
+                            ${this.isRestoring ? 'Restoring...' : 'Restore all settings'}
+                        </button>
+                    </div>
+
+                    ${this.clearStatusMessage
+                        ? html` <div class="status ${this.clearStatusType === 'success' ? 'success' : 'error'}" style="margin-bottom: 20px;">${this.clearStatusMessage}</div> `
+                        : ''}
+
                     ${this.renderTranscriptionSection()}
-                    ${this.renderAudioSection()} ${this.renderLanguageSection()} ${this.renderAppearanceSection()} ${this.renderKeyboardSection()}
-                    ${this.renderResetSection()}
+                    ${this.renderAudioSection()} 
+                    ${this.renderLanguageSection()} 
+                    ${this.renderAppearanceSection()}
                 </div>
             </div>
         `;

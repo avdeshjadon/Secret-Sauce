@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { logger, streamLogger } = require('../utils/logger');
+const { spawn } = require('child_process');
 
 // ── State ──
 
@@ -28,17 +29,29 @@ let whisperEngine = 'cpp'; // 'cpp' | 'transformers'
 let whisperModelPath = '';
 let cppWhisperUnavailable = false;
 let consecutiveTranscriptionFailures = 0;
+let activeDownloads = new Map(); // modelName -> { request, writer }
 function resolveTransformersWhisperModel(modelName) {
     const clean = String(modelName || 'tiny.en').trim();
     if (clean.startsWith('openai/')) return clean;
     const map = {
-        'tiny.en': 'openai/whisper-tiny.en',
-        'base.en': 'openai/whisper-base.en',
-        'small.en': 'openai/whisper-small.en',
-        'medium.en': 'openai/whisper-medium.en',
+        'tiny.en': 'onnx-community/whisper-tiny.en',
+        'base.en': 'onnx-community/whisper-base.en',
+        'small.en': 'onnx-community/whisper-small.en',
     };
-    return map[clean] || 'openai/whisper-tiny.en';
+    return map[clean] || 'onnx-community/whisper-tiny.en';
 }
+
+// Configure Transformers.js cache directory for easier management
+async function configureTransformersCache() {
+    try {
+        const { env } = await import('@huggingface/transformers');
+        const { app } = require('electron');
+        env.cacheDir = path.join(app.getPath('userData'), 'transformers-cache');
+    } catch (e) {
+        logger.error('[LocalAI] Failed to configure Transformers cache:', e);
+    }
+}
+configureTransformersCache();
 function streamSessionId() {
     return geminiState.sessionId || 'no-session';
 }
@@ -218,13 +231,16 @@ function pcm16ToFloat32(pcm16Buffer) {
 async function transcribeAudio(pcm16kBuffer) {
     if (whisperEngine === 'cpp' && !cppWhisperUnavailable) {
         const cppResult = await transcribeWithCpp(pcm16kBuffer);
-        if (cppResult) return cppResult;
-        // Auto-fallback to Transformers to keep real-time flow responsive.
+        if (cppResult !== null) return cppResult;
+
+        // Only fallback if there was an actual error (null), not just empty string
         cppWhisperUnavailable = true;
         whisperEngine = 'transformers';
-        logger.warn('[LocalAI] whisper.cpp unavailable, switching to Transformers fallback');
+        logger.warn('[LocalAI] whisper.cpp error, switching to Transformers fallback');
         sendToRenderer('update-status', 'whisper.cpp unavailable; switching to Transformers...');
-        const pipeline = await loadWhisperPipeline(resolveTransformersWhisperModel(getPreferences().whisperModel));
+        const prefs = getPreferences();
+        const fallbackModelId = prefs.transformersModel || prefs.whisperModel || 'tiny.en';
+        const pipeline = await loadWhisperPipeline(resolveTransformersWhisperModel(fallbackModelId));
         if (!pipeline) return null;
         return await transcribeWithTransformers(pcm16kBuffer);
     }
@@ -239,11 +255,21 @@ async function transcribeWithTransformers(pcm16kBuffer) {
 
     try {
         const float32Audio = pcm16ToFloat32(pcm16kBuffer);
-        const result = await whisperPipeline(float32Audio, {
+        
+        // Determine if model is English-only to avoid generation errors
+        const isEnglishOnly = whisperModelPath?.toLowerCase().includes('.en') || 
+                             whisperPipeline?.model?.config?._name_or_path?.toLowerCase().includes('.en');
+
+        const options = {
             sampling_rate: 16000,
-            language: 'en',
-            task: 'transcribe',
-        });
+        };
+
+        if (!isEnglishOnly) {
+            options.language = 'en';
+            options.task = 'transcribe';
+        }
+
+        const result = await whisperPipeline(float32Audio, options);
 
         const text = result.text?.trim();
         logger.info('[LocalAI] Transcription (Transformers)', text ? `(len=${text.length})` : '(empty)');
@@ -252,6 +278,75 @@ async function transcribeWithTransformers(pcm16kBuffer) {
         logger.error('[LocalAI] Transformers transcription error:', error);
         return null;
     }
+}
+
+async function runWhisperBinary(audioPath, modelPath) {
+    return new Promise((resolve, reject) => {
+        const { app } = require('electron');
+        let binaryPath = '';
+
+        const platform = process.platform;
+        let binaryName = 'main_darwin';
+        if (platform === 'win32') binaryName = 'main_win.exe';
+        else if (platform === 'linux') binaryName = 'main_linux';
+
+        if (app.isPackaged) {
+            binaryPath = path.join(process.resourcesPath, 'src', 'assets', 'bin', 'whisper', binaryName);
+        } else {
+            binaryPath = path.join(app.getAppPath(), 'src', 'assets', 'bin', 'whisper', binaryName);
+        }
+
+        // Final safety check/fallback
+        if (!fs.existsSync(binaryPath)) {
+            binaryPath = path.join(app.getAppPath(), 'src', 'assets', 'bin', 'whisper', binaryName);
+        }
+
+        const args = [
+            '--model', modelPath,
+            '--file', audioPath,
+            '--language', 'en',
+            '--no-timestamps',
+            '--threads', Math.max(1, os.cpus().length - 1).toString(),
+        ];
+
+        logger.debug('[LocalAI] Running whisper binary:', binaryPath, args.join(' '));
+
+        const whisperProcess = spawn(binaryPath, args, {
+            cwd: path.dirname(binaryPath)
+        });
+        let stdout = '';
+        let stderr = '';
+
+        whisperProcess.stdout.on('data', data => stdout += data.toString());
+        whisperProcess.stderr.on('data', data => stderr += data.toString());
+
+        const timeout = setTimeout(() => {
+            whisperProcess.kill();
+            reject(new Error('Whisper transcription timed out after 30s (Large models take time to load)'));
+        }, 30000);
+
+        whisperProcess.on('close', code => {
+            clearTimeout(timeout);
+            if (code !== 0) {
+                logger.error('[LocalAI] Whisper binary error:', stderr);
+                return reject(new Error(`Whisper process exited with code ${code}`));
+            }
+
+            const lines = stdout.split('\n');
+            const transcription = lines
+                .filter(l => l.trim() && !l.includes('whisper_init') && !l.includes('whisper_model'))
+                .map(l => l.replace(/\[\d+:\d+:\d+\.\d+ --> \d+:\d+:\d+\.\d+\]\s+/, ''))
+                .join(' ')
+                .trim();
+
+            resolve(transcription || null);
+        });
+
+        whisperProcess.on('error', err => {
+            clearTimeout(timeout);
+            reject(err);
+        });
+    });
 }
 
 async function transcribeWithCpp(pcm16kBuffer) {
@@ -264,70 +359,16 @@ async function transcribeWithCpp(pcm16kBuffer) {
 
     try {
         fs.writeFileSync(tempWav, wavData);
-        // whisper-node uses shelljs internally; ensure node path is resolvable.
-        try {
-            const shelljs = require('shelljs');
-            if (shelljs?.config) {
-                shelljs.config.execPath = process.execPath;
-            }
-        } catch (e) {
-            // Non-fatal; we'll still attempt transcription.
-        }
-
-        // whisper-node has multiple export styles across versions.
-        const whisperModule = require('whisper-node');
-        const whisper =
-            typeof whisperModule === 'function'
-                ? whisperModule
-                : typeof whisperModule?.default === 'function'
-                  ? whisperModule.default
-                  : typeof whisperModule?.whisper === 'function'
-                    ? whisperModule.whisper
-                    : null;
-        if (!whisper) {
-            throw new Error('whisper-node export is not callable');
-        }
-        const options = {
-            modelPath: whisperModelPath,
-            whisperOptions: {
-                language: 'en',
-                gen_file_txt: false,
-                gen_file_vtt: false,
-                gen_file_srt: false,
-                gen_file_lrc: false,
-                gen_file_json: false,
-                split_on_word: false,
-                no_timestamps: true,
-            },
-        };
-
-        const cppTimeoutMs = 2500;
-        const results = await Promise.race([
-            whisper(tempWav, options),
-            new Promise((_, reject) => {
-                setTimeout(() => reject(new Error(`whisper.cpp timeout after ${cppTimeoutMs}ms`)), cppTimeoutMs);
-            }),
-        ]);
-
+        const text = await runWhisperBinary(tempWav, whisperModelPath);
+        
         // Clean up temp file
-        try {
-            fs.unlinkSync(tempWav);
-        } catch (e) {}
+        try { if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav); } catch (e) {}
 
-        if (results && results.length > 0) {
-            const text = results
-                .map(r => r.speech)
-                .join(' ')
-                .trim();
-
-            return text;
-        }
-        return null;
+        logger.info('[LocalAI] Transcription (Whisper.cpp)', text ? `(len=${text.length})` : '(empty)');
+        return text;
     } catch (error) {
-        logger.error('[LocalAI] whisper.cpp transcription error:', error);
-        try {
-            if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav);
-        } catch (e) {}
+        logger.error('[LocalAI] Whisper.cpp transcription error:', error);
+        try { if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav); } catch (e) {}
         return null;
     }
 }
@@ -441,7 +482,7 @@ async function sendToOllama(transcription) {
 
 // ── Public API ──
 
-async function initializeLocalSession(ollamaHost, model, whisperModel, profile, customPrompt) {
+async function initializeLocalSession(ollamaHost, model, whisperModel, profile, customPrompt, transformersModel) {
     const { app } = require('electron');
     const prefs = getPreferences();
     whisperEngine = prefs.whisperEngine || 'cpp';
@@ -449,16 +490,17 @@ async function initializeLocalSession(ollamaHost, model, whisperModel, profile, 
     consecutiveTranscriptionFailures = 0;
     // whisper-node/cpp wrapper is unstable in many Electron macOS setups.
     // Prefer Transformers on macOS unless explicitly overridden.
-    if (process.platform === 'darwin' && whisperEngine === 'cpp' && process.env.ALLOW_WHISPER_CPP !== '1') {
-        logger.warn('[LocalAI] Forcing Whisper engine to Transformers on macOS for stability. Set ALLOW_WHISPER_CPP=1 to force cpp.');
-        whisperEngine = 'transformers';
+    // On macOS, whisper.cpp is actually very stable and fast with Metal.
+    // We only fallback if specifically requested or if it fails.
+    if (process.platform === 'darwin' && whisperEngine === 'cpp') {
+        logger.info('[LocalAI] Using whisper.cpp on macOS (Metal support enabled)');
     }
 
     // Dynamically calculate model path based on selected whisperModel name
     const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
     whisperModelPath = path.join(modelsDir, `ggml-${whisperModel || 'tiny.en'}.bin`);
 
-    logger.info('[LocalAI] Initializing session:', { ollamaHost, model, whisperModel, whisperEngine, whisperModelPath, profile });
+    logger.info('[LocalAI] Initializing session:', { ollamaHost, model, whisperModel, transformersModel, whisperEngine, whisperModelPath, profile });
 
     sendToRenderer('session-initializing', true);
 
@@ -641,71 +683,108 @@ async function sendLocalImage(base64Data, prompt) {
     }
 }
 
-async function downloadWhisperModel(modelName = 'base.en') {
+async function downloadWhisperModel(modelName) {
     const { app } = require('electron');
     const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
     if (!fs.existsSync(modelsDir)) fs.mkdirSync(modelsDir, { recursive: true });
 
     const modelPath = path.join(modelsDir, `ggml-${modelName}.bin`);
+    const tempPath = modelPath + '.tmp';
+    
+    // Check if already finished
     if (fs.existsSync(modelPath)) {
-        logger.info('[LocalAI] Model already exists at:', modelPath);
         return { success: true, path: modelPath };
     }
 
-    sendToRenderer('update-status', `Downloading Whisper model (${modelName})...`);
-    sendToRenderer('whisper-download-progress', { progress: 0 });
-
     let currentUrl = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${modelName}.bin`;
     let redirects = 0;
-    const MAX_REDIRECTS = 5;
+    const maxRedirects = 5;
 
-    while (redirects < MAX_REDIRECTS) {
+    while (redirects < maxRedirects) {
         try {
             const result = await new Promise((resolve, reject) => {
                 const https = require('https');
-                // SECURITY: never disable TLS verification for model downloads.
-                const request = https.get(currentUrl, response => {
+                
+                // Get current size if resuming
+                let startPos = 0;
+                if (fs.existsSync(tempPath)) {
+                    startPos = fs.statSync(tempPath).size;
+                }
+
+                const options = {
+                    headers: startPos > 0 ? { 'Range': `bytes=${startPos}-` } : {}
+                };
+
+                const request = https.get(currentUrl, options, response => {
                     // Handle Redirects
                     if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
                         const nextUrl = response.headers.location;
-                        response.resume(); // Consume response to free up memory
+                        response.resume();
                         resolve({ isRedirect: true, nextUrl });
                         return;
                     }
 
-                    if (response.statusCode !== 200) {
+                    // 206 Partial Content or 200 OK
+                    if (response.statusCode !== 200 && response.statusCode !== 206) {
                         response.resume();
                         reject(new Error(`Failed to download model: ${response.statusCode} ${response.statusMessage}`));
                         return;
                     }
 
-                    const totalSize = parseInt(response.headers['content-length'], 10);
-                    let downloadedSize = 0;
-                    const writer = fs.createWriteStream(modelPath);
+                    const contentRange = response.headers['content-range'];
+                    let totalSize = parseInt(response.headers['content-length'], 10);
+                    if (contentRange) {
+                        const match = contentRange.match(/\/(\d+)$/);
+                        if (match) totalSize = parseInt(match[1], 10);
+                    } else if (startPos > 0 && response.statusCode === 200) {
+                        // Server doesn't support Range, must restart
+                        startPos = 0;
+                        fs.truncateSync(tempPath, 0);
+                    }
+
+                    let downloadedSize = startPos;
+                    const writer = fs.createWriteStream(tempPath, { flags: startPos > 0 ? 'a' : 'w' });
+
+                    activeDownloads.set(modelName, { request, writer });
+
+                    // Send initial progress immediately for smoother resume
+                    if (startPos > 0 && totalSize) {
+                        const initialProgress = Math.round((startPos / totalSize) * 100);
+                        sendToRenderer('whisper-download-progress', { 
+                            progress: initialProgress,
+                            model: modelName,
+                            type: 'cpp'
+                        });
+                    }
 
                     response.on('data', chunk => {
                         downloadedSize += chunk.length;
                         writer.write(chunk);
                         if (totalSize) {
                             const progress = (downloadedSize / totalSize) * 100;
-                            sendToRenderer('whisper-download-progress', { progress: Math.round(progress) });
+                            sendToRenderer('whisper-download-progress', { 
+                                progress: Math.round(progress),
+                                model: modelName,
+                                type: 'cpp'
+                            });
                         }
                     });
 
                     response.on('end', () => {
                         writer.end();
-                        resolve({ isRedirect: false, path: modelPath });
+                        activeDownloads.delete(modelName);
+                        resolve({ isRedirect: false, path: tempPath });
                     });
 
                     response.on('error', err => {
                         writer.close();
-                        if (fs.existsSync(modelPath)) fs.unlinkSync(modelPath);
+                        activeDownloads.delete(modelName);
                         reject(err);
                     });
                 });
 
                 request.on('error', err => {
-                    if (fs.existsSync(modelPath)) fs.unlinkSync(modelPath);
+                    activeDownloads.delete(modelName);
                     reject(err);
                 });
             });
@@ -713,15 +792,18 @@ async function downloadWhisperModel(modelName = 'base.en') {
             if (result.isRedirect) {
                 currentUrl = result.nextUrl;
                 redirects++;
-                logger.info(`[LocalAI] Redirecting to: ${currentUrl} (Attempt ${redirects})`);
                 continue;
             }
 
-            logger.info('[LocalAI] Model downloaded successfully to:', result.path);
-            return { success: true, path: result.path };
+            // Finalize
+            fs.renameSync(tempPath, modelPath);
+            logger.info('[LocalAI] Model downloaded and finalized:', modelPath);
+            return { success: true, path: modelPath };
         } catch (error) {
+            if (error.message === 'aborted' || error.message === 'Aborted' || error.code === 'ECONNRESET') {
+                return { success: false, error: 'Paused', paused: true };
+            }
             logger.error('[LocalAI] Model download failed:', error);
-            if (fs.existsSync(modelPath)) fs.unlinkSync(modelPath);
             return { success: false, error: error.message };
         }
     }
@@ -733,6 +815,17 @@ ipcMain.handle('download-whisper-model', async (event, modelName) => {
     return await downloadWhisperModel(modelName);
 });
 
+ipcMain.handle('check-whisper-partial-exists', async (event, modelName) => {
+    try {
+        const { app } = require('electron');
+        const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
+        const tempPath = path.join(modelsDir, `ggml-${modelName}.bin.tmp`);
+        return fs.existsSync(tempPath);
+    } catch (e) {
+        return false;
+    }
+});
+
 ipcMain.handle('check-whisper-model-exists', async (event, modelName) => {
     const { app } = require('electron');
     const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
@@ -740,16 +833,200 @@ ipcMain.handle('check-whisper-model-exists', async (event, modelName) => {
     return fs.existsSync(modelPath);
 });
 
-ipcMain.handle('delete-whisper-model', async (event, modelName) => {
+ipcMain.handle('list-whisper-models', async () => {
+    const { app } = require('electron');
+    const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
     try {
-        const { app } = require('electron');
-        const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
-        const modelPath = path.join(modelsDir, `ggml-${modelName}.bin`);
+        if (!fs.existsSync(modelsDir)) return { success: true, models: [] };
+        const files = fs.readdirSync(modelsDir);
+        const models = files
+            .filter(f => f.startsWith('ggml-') && f.endsWith('.bin'))
+            .map(f => f.replace('ggml-', '').replace('.bin', ''));
+        return { success: true, models };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('delete-whisper-model', async (event, modelName) => {
+    const { app } = require('electron');
+    const modelsDir = path.join(app.getPath('userData'), 'whisper-models');
+    const modelPath = path.join(modelsDir, `ggml-${modelName}.bin`);
+    try {
         if (fs.existsSync(modelPath)) {
             fs.unlinkSync(modelPath);
+            logger.info(`[LocalAI] Deleted model: ${modelName}`);
             return { success: true };
         }
         return { success: false, error: 'File not found' };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('clear-all-local-data', async () => {
+    const { app } = require('electron');
+    const userData = app.getPath('userData');
+    const dirs = [
+        path.join(userData, 'whisper-models'),
+        path.join(userData, 'transformers-cache'),
+        path.join(userData, 'logs'),
+    ];
+    try {
+        for (const dir of dirs) {
+            if (fs.existsSync(dir)) {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        }
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('download-transformers-model', async (event, modelId) => {
+    try {
+        const fullModelName = resolveTransformersWhisperModel(modelId);
+        logger.info(`[LocalAI] Pre-downloading Transformers model: ${fullModelName}`);
+        
+        const { pipeline, env } = await import('@huggingface/transformers');
+        
+        // Ensure cache dir is set
+        const { app } = require('electron');
+        env.cacheDir = path.join(app.getPath('userData'), 'transformers-cache');
+
+        // This will trigger the download and caching with progress updates
+        await pipeline('automatic-speech-recognition', fullModelName, {
+            device: 'auto',
+            dtype: 'q8',
+            progress_callback: (info) => {
+                if (info.status === 'progress') {
+                    const progress = info.progress || (info.loaded && info.total ? (info.loaded / info.total) * 100 : 0);
+                    sendToRenderer('whisper-download-progress', { 
+                        progress: Math.round(progress),
+                        model: modelId,
+                        type: 'transformers'
+                    });
+                }
+                if (info.status === 'done') {
+                    sendToRenderer('whisper-download-progress', { 
+                        progress: 100, 
+                        model: modelId,
+                        type: 'transformers'
+                    });
+                }
+            }
+        });
+        
+        logger.info(`[LocalAI] Transformers model ${modelId} cached successfully`);
+        return { success: true };
+    } catch (e) {
+        logger.error(`[LocalAI] Transformers pre-download failed for ${modelId}:`, e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('pull-ollama-model', async (event, modelName) => {
+    try {
+        const client = ollamaClient || new Ollama({ host: 'http://127.0.0.1:11434' });
+        logger.info(`[LocalAI] Pulling Ollama model: ${modelName}`);
+        
+        // This is a streaming response, but for simplicity we'll wait for completion
+        // and send progress if we can. 
+        // For a better UX, we'd use a stream here.
+        const stream = await client.pull({ model: modelName, stream: true });
+        
+        for await (const part of stream) {
+            if (part.total) {
+                const progress = Math.round((part.completed / part.total) * 100);
+                sendToRenderer('whisper-download-progress', { 
+                    progress, 
+                    model: modelName,
+                    type: 'ollama'
+                });
+            }
+        }
+        
+        return { success: true };
+    } catch (e) {
+        logger.error(`[LocalAI] Failed to pull Ollama model ${modelName}:`, e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('delete-ollama-model', async (event, modelName) => {
+    try {
+        const client = ollamaClient || new Ollama({ host: 'http://127.0.0.1:11434' });
+        await client.delete({ model: modelName });
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('check-transformers-model-exists', async (event, modelId) => {
+    try {
+        const { app } = require('electron');
+        const fullModelName = resolveTransformersWhisperModel(modelId);
+        const cacheDir = path.join(app.getPath('userData'), 'transformers-cache');
+        
+        // Correct path found via find: repo/name
+        const modelPath = path.join(cacheDir, fullModelName);
+        
+        const exists = fs.existsSync(modelPath);
+        logger.debug(`[LocalAI] Checking Transformers cache for ${modelId}: ${modelPath} -> ${exists}`);
+        
+        if (exists) {
+            // Check for specific essential files to ensure it's not just an empty/partial folder
+            // Transformers.js models usually have a config.json or an onnx folder
+            const hasConfig = fs.existsSync(path.join(modelPath, 'config.json'));
+            const hasTokenizer = fs.existsSync(path.join(modelPath, 'tokenizer.json'));
+            
+            return hasConfig || hasTokenizer;
+        }
+        return false;
+    } catch (e) {
+        logger.error(`[LocalAI] Error checking Transformers cache for ${modelId}:`, e);
+        return false;
+    }
+});
+
+ipcMain.handle('clear-transformers-model-cache', async (event, modelId) => {
+    try {
+        const { app } = require('electron');
+        const fullModelName = resolveTransformersWhisperModel(modelId);
+        const cacheDir = path.join(app.getPath('userData'), 'transformers-cache');
+        const modelPath = path.join(cacheDir, fullModelName);
+        
+        if (fs.existsSync(modelPath)) {
+            fs.rmSync(modelPath, { recursive: true, force: true });
+            logger.info(`[LocalAI] Deleted Transformers cache for ${modelId}`);
+            return { success: true };
+        }
+        return { success: false, error: 'Cache folder not found' };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('pause-whisper-download', async (event, modelName) => {
+    const download = activeDownloads.get(modelName);
+    if (download) {
+        download.request.destroy();
+        download.writer.close();
+        activeDownloads.delete(modelName);
+        logger.info(`[LocalAI] Paused download for ${modelName}`);
+        return { success: true };
+    }
+    return { success: false, error: 'No active download found' };
+});
+
+ipcMain.handle('list-local-models', async (event, host) => {
+    try {
+        const { Ollama } = require('ollama');
+        const client = host ? new Ollama({ host }) : (ollamaClient || new Ollama({ host: 'http://127.0.0.1:11434' }));
+        const response = await client.list();
+        return { success: true, models: response.models || [] };
     } catch (error) {
         return { success: false, error: error.message };
     }

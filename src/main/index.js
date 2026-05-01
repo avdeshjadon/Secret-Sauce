@@ -420,6 +420,8 @@ function setupGeneralIpcHandlers() {
         }
     });
 
+    ipcMain.handle('get-platform', () => process.platform);
+
     ipcMain.on('update-keybinds', (event, newKeybinds) => {
         // Fix #8: only accept object or null
         if (newKeybinds !== null && !isPlainObject(newKeybinds)) {

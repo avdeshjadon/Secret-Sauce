@@ -101,12 +101,15 @@ export const unifiedPageStyles = css`
 
     .control {
         width: 200px;
+        height: 38px;
         background: var(--bg-elevated);
         color: var(--text-primary);
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
         padding: 8px 12px;
         font-size: var(--font-size-sm);
+        display: flex;
+        align-items: center;
         transition:
             border-color var(--transition),
             box-shadow var(--transition);

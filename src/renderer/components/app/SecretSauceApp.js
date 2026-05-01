@@ -412,6 +412,100 @@ export class SecretSauceApp extends LitElement {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #444444; }
+
+        /* Custom Dialog Styles */
+        .dialog-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fade-in 0.2s ease;
+        }
+
+        .dialog-box {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 360px;
+            max-width: 90vw;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            animation: scale-up 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            overflow: hidden;
+        }
+
+        .dialog-header {
+            padding: var(--space-md) var(--space-lg);
+            border-bottom: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .dialog-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .dialog-body {
+            padding: var(--space-lg);
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .dialog-actions {
+            padding: var(--space-md) var(--space-lg);
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--space-sm);
+            background: rgba(0, 0, 0, 0.05);
+            border-top: 1px solid var(--border);
+        }
+
+        .btn-dialog {
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-dialog.primary {
+            background: var(--accent);
+            color: var(--btn-primary-text);
+        }
+
+        .btn-dialog.primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-dialog.secondary {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-dialog.secondary:hover {
+            background: var(--bg-elevated);
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes scale-up {
+            from { transform: scale(0.9) translateY(10px); opacity: 0; }
+            to { transform: scale(1) translateY(0); opacity: 1; }
+        }
     `;
 
     static properties = {
@@ -436,6 +530,7 @@ export class SecretSauceApp extends LitElement {
         _whisperDownloading: { state: true },
         _sessionError: { state: true },
         sidebarVisible: { type: Boolean, state: true },
+        _dialogConfig: { state: true },
     };
 
     constructor() {
@@ -465,12 +560,30 @@ export class SecretSauceApp extends LitElement {
         this._localVersion = '';
         this._theme = 'dark';
         this._sessionError = null;
+        this._dialogConfig = null; // { type, title, message, resolve }
 
         // Fix #2: store IPC unsubscribe fns
         this._ipcUnsubs = [];
 
+        this._setupGlobalHelpers();
         this._loadFromStorage();
         this._checkForUpdates();
+    }
+
+    _setupGlobalHelpers() {
+        window.secretSauce = window.secretSauce || {};
+        
+        window.secretSauce.alert = (message, title = 'Alert') => {
+            return new Promise(resolve => {
+                this._dialogConfig = { type: 'alert', title, message, resolve };
+            });
+        };
+
+        window.secretSauce.confirm = (message, title = 'Confirm') => {
+            return new Promise(resolve => {
+                this._dialogConfig = { type: 'confirm', title, message, resolve };
+            });
+        };
     }
 
     async _toggleTheme() {
@@ -819,6 +932,9 @@ export class SecretSauceApp extends LitElement {
             case 'stats':
                 return html`<stats-view></stats-view>`;
 
+            case 'models':
+                return html`<models-view></models-view>`;
+
             case 'customize':
                 return html`
                     <customize-view
@@ -880,6 +996,7 @@ export class SecretSauceApp extends LitElement {
             { id: 'stats', label: 'Statistics', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></g></svg>` },
             { id: 'profiles', label: 'Profiles', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>` },
             { id: 'history', label: 'History', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M10 20.777a9 9 0 0 1-2.48-.969M14 3.223a9.003 9.003 0 0 1 0 17.554m-9.421-3.684a9 9 0 0 1-1.227-2.592M3.124 10.5c.16-.95.468-1.85.9-2.675l.169-.305m2.714-2.941A9 9 0 0 1 10 3.223"/><path d="M12 8v4l3 3"/></g></svg>` },
+            { id: 'models', label: 'Models', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>` },
             { id: 'customize', label: 'Settings', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M19.875 6.27A2.23 2.23 0 0 1 21 8.218v7.284c0 .809-.443 1.555-1.158 1.948l-6.75 4.27a2.27 2.27 0 0 1-2.184 0l-6.75-4.27A2.23 2.23 0 0 1 3 15.502V8.217c0-.809.443-1.554 1.158-1.947l6.75-3.98a2.33 2.33 0 0 1 2.25 0l6.75 3.98z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0"/></g></svg>` },
             { id: 'help', label: 'Help', icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M12 3c7.2 0 9 1.8 9 9s-1.8 9-9 9s-9-1.8-9-9s1.8-9 9-9m0 13v.01"/><path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483"/></g></svg>` },
         ];
@@ -970,6 +1087,39 @@ export class SecretSauceApp extends LitElement {
                 <div class="content">
                     ${isLive ? this.renderLiveBar() : ''}
                     <div class="content-inner ${isLive ? 'live' : ''}">${this.renderCurrentView()}</div>
+                    ${this._renderDialog()}
+                </div>
+            </div>
+        `;
+    }
+
+    _renderDialog() {
+        if (!this._dialogConfig) return '';
+
+        const { type, title, message, resolve } = this._dialogConfig;
+
+        const close = (val) => {
+            this._dialogConfig = null;
+            resolve(val);
+        };
+
+        return html`
+            <div class="dialog-overlay" @click=${() => type === 'alert' && close(true)}>
+                <div class="dialog-box" @click=${(e) => e.stopPropagation()}>
+                    <div class="dialog-header">
+                        <div class="dialog-title">${title}</div>
+                    </div>
+                    <div class="dialog-body">
+                        ${message.split('\n').map(line => html`<div>${line}</div>`)}
+                    </div>
+                    <div class="dialog-actions">
+                        ${type === 'confirm' ? html`
+                            <button class="btn-dialog secondary" @click=${() => close(false)}>Cancel</button>
+                            <button class="btn-dialog primary" @click=${() => close(true)}>Confirm</button>
+                        ` : html`
+                            <button class="btn-dialog primary" @click=${() => close(true)}>OK</button>
+                        `}
+                    </div>
                 </div>
             </div>
         `;

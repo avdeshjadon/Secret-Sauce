@@ -191,29 +191,30 @@ export class HelpView extends LitElement {
 
                     <section class="surface">
                         <div class="surface-title">Keyboard Shortcuts</div>
-                        <div class="shortcut-grid">
-                            <div class="os-column">
-                                <div class="os-title">Mac</div>
-                                ${shortcutRows.map(
-                                    ([label, key]) => html`
-                                        <div class="shortcut-row">
-                                            <span class="shortcut-label">${label}</span>
-                                            <span class="shortcut-keys">${this._formatKeybind(macDefaults[key])}</span>
-                                        </div>
-                                    `
-                                )}
-                            </div>
-                            <div class="os-column">
-                                <div class="os-title">Windows</div>
-                                ${shortcutRows.map(
-                                    ([label, key]) => html`
-                                        <div class="shortcut-row">
-                                            <span class="shortcut-label">${label}</span>
-                                            <span class="shortcut-keys">${this._formatKeybind(winDefaults[key])}</span>
-                                        </div>
-                                    `
-                                )}
-                            </div>
+                        <div class="shortcut-grid" style="grid-template-columns: 1fr;">
+                            ${(secretSauce.isMacOS || navigator.platform.includes('Mac')) ? html`
+                                <div class="os-column">
+                                    ${shortcutRows.map(
+                                        ([label, key]) => html`
+                                            <div class="shortcut-row">
+                                                <span class="shortcut-label">${label}</span>
+                                                <span class="shortcut-keys">${this._formatKeybind(macDefaults[key])}</span>
+                                            </div>
+                                        `
+                                    )}
+                                </div>
+                            ` : html`
+                                <div class="os-column">
+                                    ${shortcutRows.map(
+                                        ([label, key]) => html`
+                                            <div class="shortcut-row">
+                                                <span class="shortcut-label">${label}</span>
+                                                <span class="shortcut-keys">${this._formatKeybind(winDefaults[key])}</span>
+                                            </div>
+                                        `
+                                    )}
+                                </div>
+                            `}
                         </div>
                     </section>
                 </div>

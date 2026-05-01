@@ -363,7 +363,8 @@ export class HistoryView extends LitElement {
 
     async handleDeleteSession(e, sessionId) {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this session?')) {
+        const confirmed = await window.secretSauce.confirm('Are you sure you want to delete this session?', 'Delete Session');
+        if (confirmed) {
             await secretSauce.storage.deleteSession(sessionId);
             this.loadSessions();
             if (this.selectedSessionId === sessionId) {
@@ -373,7 +374,8 @@ export class HistoryView extends LitElement {
     }
 
     async handleDeleteAll() {
-        if (confirm('Are you sure you want to delete ALL sessions? This cannot be undone.')) {
+        const confirmed = await window.secretSauce.confirm('Are you sure you want to delete ALL sessions? This cannot be undone.', 'Clear History');
+        if (confirmed) {
             await secretSauce.storage.deleteAllSessions();
             this.loadSessions();
             this.closeSession();

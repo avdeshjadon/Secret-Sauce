@@ -536,6 +536,8 @@ export class MainView extends LitElement {
         this._ollamaHost = 'http://127.0.0.1:11434';
         this._ollamaModel = 'llama3.1';
         this._whisperModel = 'tiny.en';
+        this._ollamaModels = [];
+        this._isFetchingModels = false;
 
         this._animId = null;
         this._time = 0;
@@ -565,6 +567,10 @@ export class MainView extends LitElement {
             this._ollamaHost = prefs.ollamaHost || 'http://127.0.0.1:11434';
             this._ollamaModel = prefs.ollamaModel || 'llama3.1';
             this._whisperModel = prefs.whisperModel || 'tiny.en';
+
+            if (this._mode === 'local') {
+                this._fetchOllamaModels();
+            }
 
             this.requestUpdate();
         } catch (e) {
@@ -725,7 +731,37 @@ export class MainView extends LitElement {
     async _saveOllamaHost(val) {
         this._ollamaHost = val;
         await secretSauce.storage.updatePreference('ollamaHost', val);
+        this._fetchOllamaModels();
         this.requestUpdate();
+    }
+
+    async _fetchOllamaModels() {
+        if (this._isFetchingModels) return;
+        this._isFetchingModels = true;
+        try {
+            const result = await window.electronAPI.invoke('list-local-models', this._ollamaHost);
+            if (result.success) {
+                this._ollamaModels = result.models || [];
+                // If current model is not in the list and list is not empty, pick first vision model or just first model
+                if (this._ollamaModels.length > 0) {
+                    const currentModelExists = this._ollamaModels.some(m => m.name === this._ollamaModel || m.name.split(':')[0] === this._ollamaModel);
+                    if (!currentModelExists) {
+                        const visionModel = this._ollamaModels.find(m => m.name.includes('gemma') || m.name.includes('vision') || m.name.includes('llava'));
+                        const modelToSet = visionModel ? visionModel.name : this._ollamaModels[0].name;
+                        this._ollamaModel = modelToSet;
+                        await secretSauce.storage.updatePreference('ollamaModel', modelToSet);
+                    }
+                }
+            } else {
+                this._ollamaModels = [];
+            }
+        } catch (e) {
+            console.error('Error fetching Ollama models:', e);
+            this._ollamaModels = [];
+        } finally {
+            this._isFetchingModels = false;
+            this.requestUpdate();
+        }
     }
 
     async _saveOllamaModel(val) {
@@ -740,23 +776,60 @@ export class MainView extends LitElement {
 
     // ── Start ──
 
-    _handleStart() {
+    async _handleStart() {
         if (this.isInitializing) return;
 
-        if (this._mode === 'byok') {
-            if (!this._geminiKey.trim()) {
-                this._keyError = true;
-                this.requestUpdate();
-                return;
-            }
-        } else if (this._mode === 'local') {
-            // Local mode doesn't need API keys, just Ollama host
-            if (!this._ollamaHost.trim()) {
-                return;
-            }
-        }
+        try {
+            if (this._mode === 'byok') {
+                if (!this._geminiKey.trim()) {
+                    this._keyError = true;
+                    this.requestUpdate();
+                    return;
+                }
+            } else if (this._mode === 'local') {
+                // 1. Ollama Check
+                if (this._ollamaModels.length === 0) {
+                    await window.secretSauce.alert('Please download an Ollama model first (e.g., gemma3:4b) from the Model Manager tab.', 'Model Missing');
+                    return;
+                }
 
-        this.onStart();
+                // 2. Whisper (CPP) Check
+                const whisperResult = await window.electronAPI.invoke('list-whisper-models').catch(() => ({ success: false }));
+                const hasWhisper = whisperResult.success && whisperResult.models && whisperResult.models.length > 0;
+                if (!hasWhisper) {
+                    await window.secretSauce.alert('No Whisper models found!\n\nPlease download at least 1 model out of 6 in the Model Manager for the best experience. (Recommended: Download all 6 for maximum flexibility)', 'Whisper Missing');
+                    return;
+                }
+
+                // 3. Transformers Check (Optional but important)
+                const prefs = await window.secretSauce.storage.getPreferences();
+                const selectedTransformer = prefs.transformersModel || 'tiny.en';
+                const hasSelectedTransformer = await window.electronAPI.invoke('check-transformers-model-exists', selectedTransformer).catch(() => false);
+
+                if (!hasSelectedTransformer) {
+                    // Check if ANY transformer exists as a fallback
+                    const transformerModelIds = ['tiny.en', 'base.en', 'small.en', 'medium.en', 'large-v3-turbo', 'large-v3'];
+                    const checks = await Promise.all(transformerModelIds.map(id => 
+                        window.electronAPI.invoke('check-transformers-model-exists', id).catch(() => false)
+                    ));
+                    const anyTransformer = checks.some(exists => exists);
+
+                    if (!anyTransformer) {
+                        const proceed = await window.secretSauce.confirm('No Transformers models found. For better security and 100% offline reliability, it is highly recommended to download at least one Transformer model.\n\nDo you want to proceed with the session anyway?', 'Security Recommendation');
+                        if (!proceed) return;
+                    } else {
+                        // One exists but not the selected one. We'll proceed since LocalAI auto-picks the available one if needed,
+                        // but it's better to warn or just let it be.
+                        console.warn(`[MainView] Selected transformer ${selectedTransformer} missing, but other(s) exist.`);
+                    }
+                }
+            }
+
+            this.onStart();
+        } catch (err) {
+            console.error('Error starting session:', err);
+            await window.secretSauce.alert('System error while starting session. Please check if Ollama is running.', 'System Error');
+        }
     }
 
     triggerApiKeyError() {
@@ -883,6 +956,15 @@ export class MainView extends LitElement {
 
     _renderLocalMode() {
         return html`
+            <div style="background: rgba(var(--accent-rgb, 59, 130, 246), 0.1); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center;">
+                <div style="color: var(--accent); display: flex; align-items: center;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                </div>
+                <div style="font-size: 12px; color: var(--text-primary); line-height: 1.4;">
+                    <strong>Ollama Connectivity:</strong> Please ensure the <strong>Ollama</strong> app is running in your background so your local models can be fetched and utilized.
+                </div>
+            </div>
+
             <div class="form-group">
                 <label class="form-label">Ollama Host</label>
                 <input
@@ -895,16 +977,35 @@ export class MainView extends LitElement {
             </div>
 
             <div class="form-group">
-                <label class="form-label">Ollama Model</label>
-                <input type="text" placeholder="llama3.1" .value=${this._ollamaModel} @input=${e => this._saveOllamaModel(e.target.value)} />
-                <div class="form-hint">
-                    Run
-                    <code
-                        style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-elevated); padding: 1px 4px; border-radius: 3px;"
-                        >ollama pull ${this._ollamaModel}</code
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label class="form-label">Ollama Model</label>
+                    <button 
+                        class="help-btn" 
+                        style="padding: 2px; height: auto;" 
+                        title="Refresh models"
+                        ?disabled=${this._isFetchingModels}
+                        @click=${() => this._fetchOllamaModels()}
                     >
-                    first
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" class="${this._isFetchingModels ? 'whisper-spinner' : ''}">
+                            <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 11a8.1 8.1 0 0 0-15.5-2m-.5-4v4h4m-4 5a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/>
+                        </svg>
+                    </button>
                 </div>
+                ${this._ollamaModels.length > 0 ? html`
+                    <select .value=${this._ollamaModel} @change=${e => this._saveOllamaModel(e.target.value)}>
+                        ${this._ollamaModels.map(m => html`<option value="${m.name}">${m.name} (${(m.size / 1024 / 1024 / 1024).toFixed(1)} GB)</option>`)}
+                    </select>
+                ` : html`
+                    <input type="text" placeholder="llama3.1" .value=${this._ollamaModel} @input=${e => this._saveOllamaModel(e.target.value)} />
+                `}
+                <div class="form-hint">
+                    ${this._ollamaModels.length === 0 ? html`No models found. Pull one first:` : html`Select a vision model (like gemma3) for screenshots`}
+                </div>
+                ${this._ollamaModels.length === 0 ? html`
+                    <div class="form-hint">
+                        <code style="font-family: var(--font-mono); font-size: 11px; background: var(--bg-elevated); padding: 1px 4px; border-radius: 3px;">ollama pull gemma3:4b</code>
+                    </div>
+                ` : ''}
             </div>
 
             ${this._renderStartButton()} ${this._renderDivider()}
@@ -1038,7 +1139,7 @@ export class MainView extends LitElement {
                             <span class="help-model-name">gemma3:4b</span><span>4B — fast, multimodal (Recommended for screenshots)</span>
                         </div>
                         <div class="help-model">
-                            <span class="help-model-name">llama3.1</span><span>8B — text only, very intelligent</span>
+                            <span class="help-model-name">llama3:8b</span><span>8B — text only, very intelligent</span>
                         </div>
                     </div>
                     <div class="help-section-text">gemma3:4b and above supports images — screenshots will work with these models.</div>

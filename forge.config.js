@@ -6,7 +6,13 @@ module.exports = {
         asar: {
             unpack: '**/{onnxruntime-node,onnxruntime-common,@huggingface/transformers,sharp,@img}/**',
         },
-        extraResource: ['./src/assets/bin/SystemAudioDump'],
+        extraResource: [
+            './src/assets/bin/SystemAudioDump',
+            './src/assets/bin/whisper/main_darwin',
+            './src/assets/bin/whisper/ggml-metal.metal',
+            './src/assets/bin/whisper/main_win.exe',
+            './src/assets/bin/whisper/main_linux',
+        ],
         name: 'Secret Sauce',
         icon: 'src/assets/icons/logo',
         
