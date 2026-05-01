@@ -964,6 +964,44 @@ export class MainView extends LitElement {
     }
 
     _renderLocalHelp() {
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const isWin = navigator.platform.toUpperCase().indexOf('WIN') >= 0;
+        const isLinux = navigator.platform.toUpperCase().indexOf('LINUX') >= 0;
+
+        let installHtml = html`
+            <div class="help-section-text">
+                Download from
+                <span class="help-link" @click=${() => this.onExternalLink('https://ollama.com/download')}>ollama.com/download</span> and install it.
+            </div>
+        `;
+
+        if (isMac) {
+            installHtml = html`
+                <div class="help-section-text">Terminal (Recommended):</div>
+                <code class="help-code">brew install ollama</code>
+                <div class="help-section-text" style="margin-top: 4px;">Manual:</div>
+                <div class="help-section-text">
+                    Download from
+                    <span class="help-link" @click=${() => this.onExternalLink('https://ollama.com/download/mac')}>ollama.com/download/mac</span>
+                </div>
+            `;
+        } else if (isWin) {
+            installHtml = html`
+                <div class="help-section-text">Terminal (Recommended):</div>
+                <code class="help-code">winget install ollama.ollama</code>
+                <div class="help-section-text" style="margin-top: 4px;">Manual:</div>
+                <div class="help-section-text">
+                    Download from
+                    <span class="help-link" @click=${() => this.onExternalLink('https://ollama.com/download/windows')}>ollama.com/download/windows</span>
+                </div>
+            `;
+        } else if (isLinux) {
+            installHtml = html`
+                <div class="help-section-text">Terminal Installation:</div>
+                <code class="help-code">curl -fsSL https://ollama.com/install.sh | sh</code>
+            `;
+        }
+
         return html`
             <div class="help-content">
                 <div class="help-section">
@@ -976,11 +1014,7 @@ export class MainView extends LitElement {
 
                 <div class="help-section">
                     <div class="help-section-title">Install Ollama</div>
-                    <div class="help-section-text">
-                        Download from
-                        <span class="help-link" @click=${() => this.onExternalLink('https://ollama.com/download')}>ollama.com/download</span> and
-                        install it.
-                    </div>
+                    ${installHtml}
                 </div>
 
                 <div class="help-section">
@@ -993,22 +1027,26 @@ export class MainView extends LitElement {
 
                 <div class="help-section">
                     <div class="help-section-title">Pull a model</div>
-                    <div class="help-section-text">Download a model before first use:</div>
+                    <div class="help-section-text">Download a vision model to support screenshots:</div>
                     <code class="help-code">ollama pull gemma3:4b</code>
                 </div>
 
                 <div class="help-section">
                     <div class="help-section-title">Recommended models</div>
                     <div class="help-models">
-                        <div class="help-model"><span class="help-model-name">gemma3:4b</span><span>4B — fast, multimodal (images + text)</span></div>
-                        <div class="help-model"><span class="help-model-name">mistral-small</span><span>8B — solid all-rounder, text only</span></div>
+                        <div class="help-model">
+                            <span class="help-model-name">gemma3:4b</span><span>4B — fast, multimodal (Recommended for screenshots)</span>
+                        </div>
+                        <div class="help-model">
+                            <span class="help-model-name">llama3.1</span><span>8B — text only, very intelligent</span>
+                        </div>
                     </div>
                     <div class="help-section-text">gemma3:4b and above supports images — screenshots will work with these models.</div>
                 </div>
 
                 <div class="help-section">
                     <div class="help-warn">
-                        Avoid "thinking" models (e.g. deepseek-r1, qwq). Local inference is already slower — a thinking model adds extra delay before
+                        Avoid "thinking" models (e.g. deepseek-r1). Local inference is already slower — a thinking model adds extra delay before
                         responding.
                     </div>
                 </div>
@@ -1025,8 +1063,8 @@ export class MainView extends LitElement {
                 <div class="help-section">
                     <div class="help-section-title">Computer hanging or slow?</div>
                     <div class="help-section-text">
-                        Running models locally uses a lot of RAM and CPU. If your computer slows down or freezes, it's likely the LLM. Switch back to
-                        BYOK mode if you want to use a hosted provider instead.
+                        Running models locally uses a lot of RAM and CPU. If your computer slows down or freezes, switch back to BYOK mode to use a
+                        hosted provider instead.
                     </div>
                 </div>
 
