@@ -1,9 +1,9 @@
 {
-    "name": "cheating-daddy",
-    "productName": "cheating-daddy",
+    "name": "secret-sauce",
+    "productName": "secret-sauce",
     "version": "0.7.0",
-    "description": "cheating daddy",
-    "main": "src/index.js",
+    "description": "secret sauce",
+    "main": "main/index.js",
     "scripts": {
         "start": "electron-forge start",
         "package": "electron-forge package",
@@ -12,14 +12,14 @@
         "lint": "echo \"No linting configured\""
     },
     "keywords": [
-        "cheating daddy",
-        "cheating daddy ai",
-        "cheating daddy ai assistant",
-        "cheating daddy ai assistant for interviews",
-        "cheating daddy ai assistant for interviews"
+        "secret sauce",
+        "secret sauce ai",
+        "secret sauce ai assistant",
+        "secret sauce ai assistant for interviews",
+        "secret sauce ai assistant for interviews"
     ],
     "author": {
-        "name": "sohzm",
+        "name": "avdeshjadon",
         "email": "sohambharambe9@gmail.com"
     },
     "license": "GPL-3.0",
